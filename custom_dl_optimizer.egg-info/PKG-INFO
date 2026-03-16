@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: custom-dl-optimizer
+Version: 1.0.1
+Summary: A Deep Learning Auto-Optimizer using FX and Triton
+Requires-Dist: torch
+Requires-Dist: triton
+Dynamic: requires-dist
+Dynamic: summary
