@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+build/
+dist/
+*.whl
+*.tar.gz
+
+.venv/
+venv/
+env/
+
+custom_dl_optimizer_research_outputs/
+
+# Local secrets / publishing credentials
+token
+token.*
+pypi_token*
+.pypirc
+.env
+*.env

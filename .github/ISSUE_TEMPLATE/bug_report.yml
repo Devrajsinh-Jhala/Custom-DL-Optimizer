@@ -1,0 +1,31 @@
+name: Bug report
+description: Report incorrect behavior, a failed optimization, or a compatibility issue.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include package, Python, PyTorch, CUDA, Triton, GPU, dtype, and input shape.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Optimization report
+      description: Paste `optimizer.last_report.as_dict()` with sensitive paths removed.

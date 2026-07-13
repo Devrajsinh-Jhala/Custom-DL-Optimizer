@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Custom-DL-Optimizer profiles, rewrites, validates, and selects PyTorch inference plans for NVIDIA GPUs.">
+    <meta name="theme-color" content="#0d1210">
+    <meta property="og:title" content="Custom-DL-Optimizer">
+    <meta property="og:description" content="A regression-aware PyTorch inference optimizer built with FX, Triton, and TorchInductor.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="assets/terminal-benchmark.png">
+    <title>Custom-DL-Optimizer | PyTorch inference plan selection</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header" data-header>
+      <div class="nav-shell">
+        <a class="brand" href="#top" aria-label="Custom-DL-Optimizer home">
+          <span class="brand-mark" aria-hidden="true">CDL</span>
+          <span>Custom-DL-Optimizer</span>
+        </a>
+        <button class="icon-button nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" data-nav-toggle title="Menu">
+          <i data-lucide="menu" aria-hidden="true"></i>
+        </button>
+        <nav class="nav-links" aria-label="Primary navigation" data-nav>
+          <a href="#architecture">Architecture</a>
+          <a href="#evidence">Evidence</a>
+          <a href="#docs">Docs</a>
+          <a class="nav-github" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer">
+            <i data-lucide="github" aria-hidden="true"></i>
+            GitHub
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-overlay" aria-hidden="true"></div>
+        <div class="hero-content">
+          <p class="eyebrow"><span class="status-dot"></span> Open-source ML systems research</p>
+          <h1 id="hero-title">Custom-DL-Optimizer</h1>
+          <p class="hero-lede">A regression-aware PyTorch inference optimizer that profiles candidate plans, rewrites supported graphs, validates numerical output, and keeps the fastest safe path.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/tree/codex/package-site-release#quick-start">
+              Get started
+              <i data-lucide="arrow-right" aria-hidden="true"></i>
+            </a>
+            <a class="button button-secondary" href="https://pypi.org/project/custom-dl-optimizer/">
+              <i data-lucide="package" aria-hidden="true"></i>
+              View on PyPI
+            </a>
+          </div>
+          <div class="install-command" aria-label="Installation command">
+            <code>pip install custom-dl-optimizer</code>
+            <button class="icon-button copy-button" type="button" data-copy="pip install custom-dl-optimizer" aria-label="Copy installation command" title="Copy command">
+              <i data-lucide="copy" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
+        <div class="hero-foot" aria-label="Project summary">
+          <span>PyTorch FX graph surgery</span>
+          <span>Optional Triton kernels</span>
+          <span>Measured native fallback</span>
+        </div>
+      </section>
+
+      <section class="proof-band" aria-label="Research snapshot">
+        <div class="section-shell proof-grid">
+          <div><strong>4.11x</strong><span>best historical gain vs eager FP32</span></div>
+          <div><strong>1.11x</strong><span>best historical gain vs Inductor</span></div>
+          <div><strong>8</strong><span>CPU-safe package tests</span></div>
+          <div><strong>1 call</strong><span>to profile and select a plan</span></div>
+        </div>
+      </section>
+
+      <section class="section" id="architecture">
+        <div class="section-shell">
+          <div class="section-heading reveal">
+            <p class="eyebrow dark">Compiler pipeline</p>
+            <h2>Optimization with an exit strategy.</h2>
+            <p>Every candidate must remain numerically close to eager FP32. Custom graph work is retained only when pilot timing clears the configured gain threshold.</p>
+          </div>
+          <div class="pipeline" role="list">
+            <article class="pipeline-step reveal" role="listitem">
+              <span class="step-number">01</span>
+              <i data-lucide="activity" aria-hidden="true"></i>
+              <h3>Profile</h3>
+              <p>Capture representative operator timing and the input signature.</p>
+            </article>
+            <article class="pipeline-step reveal" role="listitem">
+              <span class="step-number">02</span>
+              <i data-lucide="git-branch" aria-hidden="true"></i>
+              <h3>Rewrite</h3>
+              <p>Fold safe Conv-BN patterns and replace supported FX nodes.</p>
+            </article>
+            <article class="pipeline-step reveal" role="listitem">
+              <span class="step-number">03</span>
+              <i data-lucide="shield-check" aria-hidden="true"></i>
+              <h3>Validate</h3>
+              <p>Reject candidates that fail output structure or parity checks.</p>
+            </article>
+            <article class="pipeline-step reveal" role="listitem">
+              <span class="step-number">04</span>
+              <i data-lucide="gauge" aria-hidden="true"></i>
+              <h3>Select</h3>
+              <p>Keep FX or Inductor only when measured speedup beats native.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="code-section">
+        <div class="section-shell code-layout">
+          <div class="code-copy reveal">
+            <p class="eyebrow light">One-call interface</p>
+            <h2>Inspect the decision, not just the output.</h2>
+            <p>The original `optimize()` workflow remains. `optimize_with_report()` adds the selected plan, timing, graph rewrite counts, numerical error, and fallback reason.</p>
+            <a class="text-link" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/codex/package-site-release/docs/usage.md">
+              Read the usage guide
+              <i data-lucide="external-link" aria-hidden="true"></i>
+            </a>
+          </div>
+          <div class="code-window reveal" aria-label="Python quick start">
+            <div class="code-toolbar">
+              <span>quickstart.py</span>
+              <button class="icon-button" type="button" data-copy-target="quickstart-code" aria-label="Copy quick start" title="Copy code">
+                <i data-lucide="copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code id="quickstart-code">from custom_dl_optimizer import (
+    AutoOptimizer,
+    OptimizationConfig,
+)
+
+config = OptimizationConfig(
+    enable_compile=True,
+    compile_mode="max-autotune",
+    min_speedup=1.02,
+)
+
+optimizer = AutoOptimizer(model, config=config)
+optimized, report = optimizer.optimize_with_report(inputs)
+
+print(report.selected_plan)
+print(report.selection_reason)</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="section evidence" id="evidence">
+        <div class="section-shell">
+          <div class="section-heading reveal">
+            <p class="eyebrow dark">Measured evidence</p>
+            <h2>Strong baselines change the story.</h2>
+            <p>This historical T4 snapshot came from the earlier fixed research path. It demonstrates why architecture-aware fallback matters; MobileNet-V2 lost to the native compiler path.</p>
+          </div>
+          <div class="table-wrap reveal" tabindex="0" role="region" aria-label="Historical T4 benchmark table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Eager FP32</th>
+                  <th>Inductor</th>
+                  <th>Experimental</th>
+                  <th>vs Eager</th>
+                  <th>vs Inductor</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>ResNet-50</td><td>366.997 ms</td><td>99.254 ms</td><td>89.307 ms</td><td class="positive">4.11x</td><td class="positive">1.11x</td></tr>
+                <tr><td>MobileNet-V2</td><td>112.703 ms</td><td>54.312 ms</td><td>64.372 ms</td><td>1.75x</td><td class="negative">0.84x</td></tr>
+                <tr><td>VGG-16</td><td>639.399 ms</td><td>273.326 ms</td><td>273.402 ms</td><td>2.34x</td><td>1.00x</td></tr>
+                <tr><td>EfficientNet-B0</td><td>146.788 ms</td><td>70.784 ms</td><td>66.409 ms</td><td>2.21x</td><td class="positive">1.07x</td></tr>
+                <tr><td>DenseNet-121</td><td>360.750 ms</td><td>194.997 ms</td><td>193.169 ms</td><td>1.87x</td><td>1.01x</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="evidence-note reveal"><i data-lucide="info" aria-hidden="true"></i> Hardware and software snapshot only. Rerun the current notebook before citing results. No state-of-the-art claim is made.</p>
+        </div>
+      </section>
+
+      <section class="principles-section">
+        <div class="section-shell principles-layout">
+          <div class="section-heading reveal">
+            <p class="eyebrow light">Research discipline</p>
+            <h2>Designed to expose failure, too.</h2>
+          </div>
+          <div class="principles" role="list">
+            <div class="principle reveal" role="listitem"><i data-lucide="undo-2" aria-hidden="true"></i><span>Native fallback when a custom plan is slower</span></div>
+            <div class="principle reveal" role="listitem"><i data-lucide="binary" aria-hidden="true"></i><span>Parity and error statistics before selection</span></div>
+            <div class="principle reveal" role="listitem"><i data-lucide="timer" aria-hidden="true"></i><span>Setup cost separated from steady-state latency</span></div>
+            <div class="principle reveal" role="listitem"><i data-lucide="file-chart-column" aria-hidden="true"></i><span>Raw timing and environment exports in the notebook</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="docs">
+        <div class="section-shell">
+          <div class="section-heading reveal">
+            <p class="eyebrow dark">Project resources</p>
+            <h2>From first call to reproducible result.</h2>
+          </div>
+          <div class="resource-grid">
+            <a class="resource-card reveal" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/codex/package-site-release/docs/usage.md">
+              <i data-lucide="book-open" aria-hidden="true"></i>
+              <h3>Usage guide</h3>
+              <p>Configuration, multi-input models, compilation, and reports.</p>
+              <span>Open guide <i data-lucide="arrow-up-right" aria-hidden="true"></i></span>
+            </a>
+            <a class="resource-card reveal" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/codex/package-site-release/Custom_DL_Optimizer_Research_Colab.ipynb">
+              <i data-lucide="flask-conical" aria-hidden="true"></i>
+              <h3>Research notebook</h3>
+              <p>Confidence intervals, raw timings, ablations, and paper exports.</p>
+              <span>Open notebook <i data-lucide="arrow-up-right" aria-hidden="true"></i></span>
+            </a>
+            <a class="resource-card reveal" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/codex/package-site-release/CONTRIBUTING.md">
+              <i data-lucide="git-pull-request" aria-hidden="true"></i>
+              <h3>Contribute</h3>
+              <p>Correctness requirements and benchmark expectations for new passes.</p>
+              <span>View workflow <i data-lucide="arrow-up-right" aria-hidden="true"></i></span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-band">
+        <div class="section-shell cta-inner">
+          <div>
+            <p class="eyebrow light">Version 1.1</p>
+            <h2>Measure first. Keep only what wins.</h2>
+          </div>
+          <a class="button button-primary" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer">
+            <i data-lucide="github" aria-hidden="true"></i>
+            Explore the repository
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-inner">
+        <a class="brand footer-brand" href="#top"><span class="brand-mark" aria-hidden="true">CDL</span><span>Custom-DL-Optimizer</span></a>
+        <p>MIT licensed. Built for transparent ML systems research.</p>
+        <p>&copy; <span data-year></span> Devrajsinh Jhala</p>
+      </div>
+    </footer>
+  </body>
+</html>
