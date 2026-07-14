@@ -1,88 +1,218 @@
-# 🥇 Custom DL Operator Profiler & Auto-Optimizer
+# Custom-DL-Optimizer
 
-**Custom-dl-optimizer** is a production-grade deep learning runtime optimization library. It bridges the gap between high-level model research and low-level hardware execution by performing automated **Graph Surgery** and **Custom Kernel Injection**.
+[![PyPI](https://img.shields.io/pypi/v/custom-dl-optimizer.svg)](https://pypi.org/project/custom-dl-optimizer/)
+[![CI](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/actions/workflows/tests.yml/badge.svg)](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/actions/workflows/tests.yml)
+[![Python](https://img.shields.io/pypi/pyversions/custom-dl-optimizer.svg)](https://pypi.org/project/custom-dl-optimizer/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-137a55.svg)](LICENSE)
 
-By analyzing the "Arithmetic Intensity" of a model, this tool identifies bottlenecks and automatically optimizes them for NVIDIA GPUs, achieving significant speedups (1.5x - 4x) without requiring the developer to write a single line of CUDA or Triton.
+Custom-DL-Optimizer is an auditable PyTorch inference plan selector. Give it a model and representative inputs; it profiles eligible execution plans, validates every candidate against eager FP32, and returns the fastest plan that clears your configured gain threshold.
 
----
+[Project site](https://devrajsinh-jhala.github.io/Custom-DL-Optimizer/) | [Usage](docs/usage.md) | [Provider API](docs/providers.md) | [Agent toolkit](docs/agents.md) | [Research notebook](Custom_DL_Optimizer_Research_Colab.ipynb)
 
-## 🏗 Project Architecture & Roles
+> Status: research alpha. Use it for controlled inference experiments and deployment feasibility checks. It complements rather than replaces TorchInductor, Torch-TensorRT, TensorRT, ONNX Runtime, TVM, or vendor profilers.
 
-The system is divided into four distinct "System Engineer" roles:
+## Why It Exists
 
-| Component | File | Role |
-| :--- | :--- | :--- |
-| **The Profiler** | `profiler.py` | Uses `torch.profiler` to programmatically extract CUDA event times. It identifies whether a layer is **Compute-bound** (limited by math units) or **Memory-bound** (limited by VRAM bandwidth). |
-| **The Surgeon** | `graph_surgeon.py` | Uses **PyTorch FX** to trace the model into an Intermediate Representation (IR). It performs pattern matching to find inefficient layers and replaces them with optimized alternatives. |
-| **The Engine** | `triton_kernels.py` | Contains custom-written **OpenAI Triton** kernels. These bypass the standard PyTorch C++ overhead to execute math directly on the GPU SRAM using optimized block-level memory access. |
-| **The Orchestrator**| `engine.py` | The user-facing API. It handles **Memory Layout Change (NHWC)** and **Auto-Mixed Precision (AMP)** to maximize Tensor Core utilization. |
+An optimization is useful only when it wins on the actual model, input signature, device, and software stack. A transformation that helps ResNet can regress MobileNet; compilation can reduce steady-state latency while adding material setup cost; reduced precision can be fast but numerically unacceptable.
 
----
+Custom-DL-Optimizer makes those tradeoffs explicit:
 
-## 📦 Installation
+- measures eager FP32, native AMP/layout, FX, and optional compiler candidates;
+- supports external candidate providers for TensorRT, ONNX Runtime wrappers, private compilers, or research passes;
+- rejects candidates that fail output structure or tolerance checks;
+- records setup time separately from steady-state latency;
+- reports speedup against eager FP32 and the native optimized path;
+- falls back when custom work does not clear `min_speedup`;
+- exports runtime provenance and results as JSON;
+- exposes a closed, dependency-neutral tool surface for in-process agents.
+
+## Installation
 
 ```bash
 pip install custom-dl-optimizer
 ```
 
-## Benchmarks
-### Standard Resnet Test
-This test compares a native PyTorch ResNet-18 against the Auto-Optimized version.
+Vision examples require:
+
+```bash
+pip install "custom-dl-optimizer[vision]"
+```
+
+Triton and third-party compiler packages are runtime-detected. They are not force-installed because their versions must match the installed PyTorch/CUDA stack.
+
+## Quick Start
+
+Version 2 uses a result-oriented API:
+
 ```python
 import torch
-import time
-from torchvision.models import resnet18
-from custom_dl_optimizer import AutoOptimizer
+from torchvision.models import resnet50
 
-# Setup
-device = "cuda"
-inputs = torch.randn(128, 3, 224, 224).to(device)
-model = resnet18().to(device).eval()
+from custom_dl_optimizer import OptimizationConfig, Optimizer
 
-def benchmark(m, inp, label):
-    # Warmup
-    for _ in range(10): m(inp)
-    torch.cuda.synchronize()
-    
-    start = time.time()
-    for _ in range(50): 
-        with torch.no_grad():
-            m(inp)
-    torch.cuda.synchronize()
-    ms = ((time.time() - start) / 50) * 1000
-    print(f"{label} Latency: {ms:.2f}ms")
-    return ms
+model = resnet50(weights=None).eval()
+sample = torch.randn(8, 3, 224, 224)
 
-# Measure Baseline
-baseline_ms = benchmark(model, inputs, "Standard PyTorch ResNet18")
+optimizer = Optimizer(
+    device="cuda" if torch.cuda.is_available() else "cpu",
+    config=OptimizationConfig(
+        enable_compile=torch.cuda.is_available(),
+        compile_mode="max-autotune",
+        min_speedup=1.02,
+    ),
+)
+result = optimizer.optimize(model, sample)
 
-# Optimize
-optimizer = AutoOptimizer(model)
-fast_model = optimizer.optimize(inputs)
+with torch.inference_mode():
+    output = result(sample)
 
-# Measure Optimized
-inputs_nhwc = inputs.to(memory_format=torch.channels_last)
-fast_ms = benchmark(fast_model, inputs_nhwc, "Optimized ResNet18")
-
-print(f"\n Total Improvement: {baseline_ms/fast_ms:.2f}x")
+print(result.selected_plan)
+print(result.report.selection_reason)
+result.save_report("artifacts/resnet50-optimization.json")
 ```
 
-```text
-Standard PyTorch ResNet18 Latency: 106.90ms
+`OptimizationResult` owns both the callable selected module and the evidence used to select it. The selected wrapper prepares nested positional and keyword tensors for the target device and memory layout.
 
-==================================================
-🚀 STARTING DL-OPTIMIZER PIPELINE
-==================================================
-[Profiler] Running warm-up...
-[Profiler] Tracing execution...
-⚠️ [Profiler] Bottleneck Found: 'cudaDeviceSynchronize' is heavily taxing the hardware.
-[Graph Surgeon] Tracing model into FX AST Graph...
-✅ [Graph Surgeon] Injected custom Triton kernels in 9 locations.
-[Memory Ops] Converting memory layout to Channels-Last (NHWC)...
-[Precision] Wrapping model in FP16 Auto-Mixed Precision...
-✅ PIPELINE COMPLETE. Model is ready for inference.
+## Candidate Evidence
 
-Optimized ResNet18 Latency: 52.02ms
-
-🚀 Total Improvement: 2.05x
+```python
+for candidate in result.report.candidates:
+    print(
+        candidate.name,
+        candidate.latency_ms,
+        candidate.speedup_vs_eager,
+        candidate.speedup_vs_native,
+        candidate.parity,
+        candidate.error,
+    )
 ```
+
+Built-in plans are:
+
+| Candidate | Purpose |
+| --- | --- |
+| `eager_fp32` | Correctness and performance reference |
+| `native` | Eligible AMP and channels-last execution |
+| `fx` | Safe Conv-BN folding and supported FX rewrites |
+| `fx_inductor` | FX preparation followed by TorchInductor |
+
+Only valid candidates participate in selection. Pilot measurements are useful for plan choice; use a full benchmark protocol for publication claims.
+
+## Compare Another Compiler
+
+External backends implement the small `CandidateProvider` protocol. The package handles warmup, timing, parity, reporting, and selection:
+
+```python
+import torch
+import torch_tensorrt  # Registers the torch.compile backend.
+
+from custom_dl_optimizer import (
+    FunctionCandidateProvider,
+    OptimizationConfig,
+    Optimizer,
+)
+
+
+def build_torch_tensorrt(model, context):
+    return torch.compile(
+        model,
+        backend="torch_tensorrt",
+        dynamic=context.config.dynamic_shapes,
+    )
+
+
+optimizer = Optimizer(
+    device="cuda",
+    config=OptimizationConfig(min_speedup=1.02),
+    providers=(
+        FunctionCandidateProvider(
+            name="torch_tensorrt",
+            builder=build_torch_tensorrt,
+            availability=lambda context: context.device.type == "cuda",
+        ),
+    ),
+)
+result = optimizer.optimize(model, sample)
+```
+
+See [docs/providers.md](docs/providers.md) for isolation, input, correctness, and dependency rules. Torch-TensorRT officially supports use as a `torch.compile` backend; ONNX Runtime uses ordered execution providers and may require a wrapper that converts between PyTorch tensors and the session API.
+
+## Agent Toolkit
+
+Agents cannot safely transmit live modules or tensors through JSON. The host application therefore registers workloads in process, then exposes four bounded tools: inspect runtime, list workloads, optimize one workload, and read its report.
+
+```python
+from custom_dl_optimizer import OptimizationAgentToolkit, Optimizer
+
+toolkit = OptimizationAgentToolkit(Optimizer(device="cuda"))
+toolkit.register_workload(
+    "resnet50-b8",
+    model,
+    sample,
+    description="ResNet-50 inference, batch 8",
+)
+
+schemas = toolkit.tool_schemas()
+response = toolkit.invoke(
+    "custom_dl_optimize",
+    {"workload": "resnet50-b8"},
+)
+```
+
+The toolkit has no network client and never evaluates caller-provided code. See [docs/agents.md](docs/agents.md).
+
+## Runtime Provenance
+
+```python
+capabilities = optimizer.inspect_runtime()
+print(capabilities.as_dict())
+```
+
+Reports include Python and PyTorch versions, device name and type, CUDA/cuDNN versions, compute capability, and the availability of AMP, channels-last, Triton, and `torch.compile`.
+
+## v1 Compatibility
+
+`AutoOptimizer` remains available for one transition release, but new code should use `Optimizer`. The primary v2 contract returns one `OptimizationResult` rather than a `(module, report)` tuple. See [docs/migration-v2.md](docs/migration-v2.md).
+
+## Historical Research Snapshot
+
+An earlier fixed-path notebook run on an NVIDIA Tesla T4 produced the following hardware-specific results. These are not guaranteed package performance and are not a state-of-the-art claim.
+
+| Model | Batch | Eager FP32 | Inductor | Experimental | vs Eager | vs Inductor |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ResNet-50 | 128 | 366.997 ms | 99.254 ms | 89.307 ms | 4.11x | 1.11x |
+| MobileNet-V2 | 128 | 112.703 ms | 54.312 ms | 64.372 ms | 1.75x | 0.84x |
+| VGG-16 | 128 | 639.399 ms | 273.326 ms | 273.402 ms | 2.34x | 1.00x |
+| EfficientNet-B0 | 128 | 146.788 ms | 70.784 ms | 66.409 ms | 2.21x | 1.07x |
+| DenseNet-121 | 128 | 360.750 ms | 194.997 ms | 193.169 ms | 1.87x | 1.01x |
+
+MobileNet-V2 is the important result: the experimental path regressed against Inductor. Version 2 measures and exposes that failure instead of assuming every rewrite is beneficial. Rerun the research notebook before citing any value.
+
+## Development
+
+```bash
+git clone https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer.git
+cd Custom-DL-Optimizer
+python -m pip install -e ".[dev]"
+python -m pytest
+python -m ruff check custom_dl_optimizer tests examples tools
+python -m build
+python -m twine check dist/*
+```
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md) before contributing or publishing.
+
+## Limitations
+
+- Selection is specific to the supplied shapes, dtypes, device, and software versions.
+- FX symbolic tracing cannot represent every data-dependent Python program.
+- Provider setup may require third-party dependencies and substantial compilation time.
+- Tensor parity is not a substitute for dataset-level quality evaluation.
+- The current package targets inference; it does not optimize training or backward graphs.
+- GPU energy, peak memory, and multi-stream throughput require separate measurement.
+
+## Citation and License
+
+Citation metadata is in [CITATION.cff](CITATION.cff). Report the package version, hardware, CUDA, PyTorch, candidate providers, shapes, precision, warmup, iterations, and tolerances.
+
+Released under the [MIT License](LICENSE).

@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, cite the repository and report the exact package and hardware configuration."
+title: "Custom-DL-Optimizer"
+type: software
+authors:
+  - family-names: Jhala
+    given-names: Devrajsinh
+repository-code: "https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer"
+url: "https://devrajsinh-jhala.github.io/Custom-DL-Optimizer/"
+license: MIT
+version: 2.0.0
+date-released: 2026-07-14
+keywords:
+  - PyTorch
+  - Triton
+  - inference optimization
+  - deep learning compiler

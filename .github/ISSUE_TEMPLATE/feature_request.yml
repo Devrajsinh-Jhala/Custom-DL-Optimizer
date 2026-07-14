@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a graph pass, backend, kernel, or package improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Which workload or limitation should this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Correctness and benchmark plan
+      description: Describe parity checks, baselines, devices, and shapes.

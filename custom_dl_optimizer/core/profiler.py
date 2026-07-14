@@ -1,26 +1,84 @@
-import torch
-from torch.profiler import profile, record_function, ProfilerActivity
+from collections.abc import Iterable
+from typing import Any
 
-def analyze_bottlenecks(model, dummy_input):
-    print("[Profiler] Running warm-up...")
-    for _ in range(3): model(dummy_input)
-    
-    print("[Profiler] Tracing execution...")
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        with record_function("model_inference"):
-            model(dummy_input)
-            
-    events = prof.key_averages()
-    
-    # FIX: Safely extract CUDA time regardless of PyTorch version
-    def get_time(e):
-        return getattr(e, "self_cuda_time_total", getattr(e, "self_cpu_time_total", 0))
-        
-    sorted_events = sorted(events, key=get_time, reverse=True)
-    
-    slowest_op = sorted_events[0]
-    if "model_inference" in slowest_op.key and len(sorted_events) > 1:
-        slowest_op = sorted_events[1]
-        
-    print(f"⚠️ [Profiler] Bottleneck Found: '{slowest_op.key}' is heavily taxing the hardware.")
-    return slowest_op.key
+import torch
+from torch.profiler import ProfilerActivity, profile, record_function
+
+from custom_dl_optimizer.report import OperatorProfile
+
+_IGNORED_EVENT_SUBSTRINGS = (
+    "model_inference",
+    "cudaDeviceSynchronize",
+    "Activity Buffer",
+    "ProfilerStep",
+)
+
+
+def _event_time_us(event: Any) -> float:
+    for attribute in (
+        "self_device_time_total",
+        "self_cuda_time_total",
+        "self_cpu_time_total",
+    ):
+        value = float(getattr(event, attribute, 0.0) or 0.0)
+        if value > 0:
+            return value
+    return 0.0
+
+
+def analyze_bottlenecks(
+    model: torch.nn.Module,
+    example_args: tuple[Any, ...],
+    example_kwargs: dict[str, Any] | None = None,
+    warmup_steps: int = 3,
+    top_k: int = 10,
+) -> list[OperatorProfile]:
+    """Return the slowest useful operators from one representative inference."""
+
+    kwargs = example_kwargs or {}
+    model.eval()
+    with torch.inference_mode():
+        for _ in range(warmup_steps):
+            model(*example_args, **kwargs)
+
+    has_cuda_input = any(
+        isinstance(value, torch.Tensor) and value.is_cuda
+        for value in _walk_values((example_args, kwargs))
+    )
+    if has_cuda_input:
+        torch.cuda.synchronize()
+
+    activities = [ProfilerActivity.CPU]
+    if has_cuda_input:
+        activities.append(ProfilerActivity.CUDA)
+
+    with torch.inference_mode():
+        with profile(activities=activities, record_shapes=True) as profiler:
+            with record_function("model_inference"):
+                model(*example_args, **kwargs)
+
+    useful_events = [
+        event
+        for event in profiler.key_averages()
+        if not any(token in event.key for token in _IGNORED_EVENT_SUBSTRINGS)
+    ]
+    useful_events.sort(key=_event_time_us, reverse=True)
+    return [
+        OperatorProfile(
+            name=event.key,
+            self_time_us=_event_time_us(event),
+            calls=int(event.count),
+        )
+        for event in useful_events[:top_k]
+    ]
+
+
+def _walk_values(value: Any) -> Iterable[Any]:
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _walk_values(item)
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            yield from _walk_values(item)
+    else:
+        yield value

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Custom-DL-Optimizer version 2 usage, provider, agent, and migration guides.">
+    <meta name="theme-color" content="#0b100e">
+    <title>Guides | Custom-DL-Optimizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script src="script.js" defer></script>
+  </head>
+  <body class="guide-page">
+    <a class="skip-link" href="#guide-main">Skip to content</a>
+    <header class="site-header guide-header">
+      <div class="nav-shell">
+        <a class="brand" href="index.html" aria-label="Custom-DL-Optimizer home"><span class="brand-mark" aria-hidden="true">CDL</span><span>Custom-DL-Optimizer</span></a>
+        <button class="icon-button nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" data-nav-toggle title="Menu"><i data-lucide="menu" aria-hidden="true"></i></button>
+        <nav class="nav-links" aria-label="Guide navigation" data-nav>
+          <a href="index.html#pipeline">How it works</a>
+          <a href="index.html#compare">Compare</a>
+          <a href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer"><i data-lucide="github" aria-hidden="true"></i> GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="guide-main" id="guide-main">
+      <div class="section-shell">
+        <header class="guide-intro">
+          <p class="eyebrow dark">Version 2 documentation</p>
+          <h1>Build an optimization workflow you can audit.</h1>
+          <p>These guides cover the public result API, third-party candidate providers, bounded agent tools, and migration from version 1.</p>
+          <nav class="guide-nav" aria-label="On this page">
+            <a href="#usage">Usage</a><a href="#providers">Providers</a><a href="#agents">Agents</a><a href="#migration">Migration</a>
+          </nav>
+        </header>
+
+        <article class="guide-article" id="usage">
+          <p class="eyebrow dark">Usage</p>
+          <h2>Optimize a representative signature.</h2>
+          <p>Supply the model and example positional or keyword tensors exactly as serving code will call them. Selection remains specific to those shapes, dtypes, device, and software versions.</p>
+          <pre><code>from custom_dl_optimizer import OptimizationConfig, Optimizer
+
+optimizer = Optimizer(
+    device="cuda",
+    config=OptimizationConfig(
+        enable_compile=True,
+        min_speedup=1.02,
+    ),
+)
+result = optimizer.optimize(model.eval(), sample)
+output = result(sample)
+result.save_report("artifacts/optimization.json")</code></pre>
+          <h3>Read the decision</h3>
+          <p>Each candidate records steady-state latency, setup time, calls per second, speedup against eager and native, parity, numerical error, and any failure. The parent report records graph rewrites and runtime provenance.</p>
+          <h3>Correctness boundary</h3>
+          <p>Candidates must preserve output structure and satisfy <code>torch.allclose</code> using configured tolerances. Always run task-level accuracy evaluation before deployment.</p>
+        </article>
+
+        <article class="guide-article" id="providers">
+          <p class="eyebrow dark">Candidate providers</p>
+          <h2>Compare another compiler under the same policy.</h2>
+          <p>A provider declares a unique name, availability check, and builder. The builder receives an isolated model plus prepared example inputs and returns a callable <code>nn.Module</code>.</p>
+          <pre><code>from custom_dl_optimizer import FunctionCandidateProvider, Optimizer
+
+provider = FunctionCandidateProvider(
+    name="my_backend",
+    availability=lambda context: context.device.type == "cuda",
+    builder=lambda model, context: compile_model(
+        model,
+        context.example_args,
+    ),
+)
+
+result = Optimizer(
+    device="cuda",
+    providers=(provider,),
+).optimize(model, sample)</code></pre>
+          <h3>Fair comparison</h3>
+          <p>Keep transfers and precision consistent, separate engine-build cost from steady-state latency, warm caches, expose provider configuration, and never silently run another backend under the same provider name.</p>
+        </article>
+
+        <article class="guide-article" id="agents">
+          <p class="eyebrow dark">Agent toolkit</p>
+          <h2>Register objects locally; expose names remotely.</h2>
+          <p>Live modules and tensors stay in the host process. The toolkit exposes only runtime inspection, workload listing, optimization, and report retrieval.</p>
+          <pre><code>from custom_dl_optimizer import OptimizationAgentToolkit, Optimizer
+
+toolkit = OptimizationAgentToolkit(Optimizer(device="cuda"))
+toolkit.register_workload(
+    "encoder-b16",
+    encoder,
+    tokens,
+    attention_mask=mask,
+)
+
+schemas = toolkit.tool_schemas()
+report = toolkit.invoke(
+    "custom_dl_optimize",
+    {"workload": "encoder-b16"},
+)</code></pre>
+          <h3>Security boundary</h3>
+          <p>There is no tool argument for a file path, import, download, shell command, Python expression, model weight, or credential. The host remains responsible for deciding which workload names an agent may access.</p>
+        </article>
+
+        <article class="guide-article" id="migration">
+          <p class="eyebrow dark">Migration</p>
+          <h2>Move from a tuple to one result object.</h2>
+          <p>Version 1 constructed <code>AutoOptimizer</code> around a model and returned a module/report tuple. Version 2 constructs reusable optimizer policy and returns <code>OptimizationResult</code>.</p>
+          <pre><code># Version 1
+engine = AutoOptimizer(model, config=config)
+module, report = engine.optimize_with_report(sample)
+
+# Version 2
+optimizer = Optimizer(config=config)
+result = optimizer.optimize(model, sample)
+module = result.module
+report = result.report</code></pre>
+          <p><code>AutoOptimizer</code> remains available for one transition release. New integrations should use the version 2 result contract.</p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer"><div class="section-shell footer-inner"><a class="brand footer-brand" href="index.html"><span class="brand-mark" aria-hidden="true">CDL</span><span>Custom-DL-Optimizer</span></a><p>MIT licensed.</p><p>&copy; <span data-year></span> Devrajsinh Jhala</p></div></footer>
+  </body>
+</html>
