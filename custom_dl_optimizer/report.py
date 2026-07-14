@@ -35,10 +35,17 @@ class GraphSurgeryReport:
 class CandidateReport:
     name: str
     latency_ms: float | None = None
+    latency_min_ms: float | None = None
+    latency_p90_ms: float | None = None
+    latency_stdev_ms: float | None = None
+    latency_samples_ms: list[float] = field(default_factory=list)
     parity: bool = False
     max_abs_error: float | None = None
     mean_abs_error: float | None = None
     setup_time_s: float = 0.0
+    first_call_time_s: float | None = None
+    projected_total_ms: float | None = None
+    break_even_calls_vs_baseline: int | None = None
     selected: bool = False
     calls_per_second: float | None = None
     speedup_vs_eager: float | None = None
@@ -54,6 +61,9 @@ class OptimizationReport:
     input_signature: str = ""
     channels_last: bool = False
     amp: bool = False
+    expected_calls: int | None = None
+    selection_basis: str = "steady_state_latency"
+    optimization_time_s: float = 0.0
     runtime: RuntimeCapabilities | None = None
     operator_profile: list[OperatorProfile] = field(default_factory=list)
     graph: GraphSurgeryReport = field(default_factory=GraphSurgeryReport)

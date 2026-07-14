@@ -1,5 +1,8 @@
 import json
+import time
+from dataclasses import replace
 
+import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,6 +18,7 @@ from custom_dl_optimizer import (
     Optimizer,
     inspect_runtime,
 )
+from custom_dl_optimizer.core.engine import _populate_candidate_metrics
 from custom_dl_optimizer.core.graph_surgeon import optimize_graph
 from custom_dl_optimizer.core.triton_kernels import TritonReLU
 
@@ -46,6 +50,8 @@ def test_cpu_optimizer_runs_and_exposes_report():
     assert torch.allclose(baseline, actual)
     assert optimizer.last_report is not None
     assert optimizer.last_report.selected_plan in {"eager_fp32", "native", "fx"}
+    assert optimizer.last_report.selection_basis == "steady_state_latency"
+    assert optimizer.last_report.expected_calls is None
     assert any(candidate.selected for candidate in optimizer.last_report.candidates)
     assert optimizer.last_report.runtime is not None
     eager = next(
@@ -237,3 +243,99 @@ def test_output_parity_rejects_different_mapping_keys():
     )
     assert not candidate.parity
     assert candidate.error == "Output parity check failed"
+
+
+def test_expected_calls_must_be_positive():
+    with pytest.raises(ValueError, match="expected_calls"):
+        OptimizationConfig(expected_calls=0)
+
+
+def test_report_includes_latency_distribution_and_total_optimization_time():
+    config = replace(FAST_CONFIG, selection_repeats=3, expected_calls=100)
+    result = Optimizer(device="cpu", config=config).optimize(
+        nn.Sequential(nn.Linear(4, 4), nn.ReLU()).eval(),
+        torch.randn(2, 4),
+    )
+    valid = [candidate for candidate in result.report.candidates if candidate.latency_ms]
+
+    assert result.report.selection_basis == "projected_total_time"
+    assert result.report.expected_calls == 100
+    assert result.report.optimization_time_s > 0
+    assert valid
+    for candidate in valid:
+        assert len(candidate.latency_samples_ms) == 3
+        assert candidate.latency_min_ms == min(candidate.latency_samples_ms)
+        assert candidate.latency_p90_ms is not None
+        assert candidate.latency_stdev_ms is not None
+        assert candidate.first_call_time_s is not None
+        assert candidate.projected_total_ms is not None
+
+
+def test_provider_lazy_first_call_is_measured_separately():
+    class LazyFirstCall(nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+            self.cold = True
+
+        def forward(self, value):
+            if self.cold:
+                time.sleep(0.02)
+                self.cold = False
+            return self.model(value)
+
+    provider = FunctionCandidateProvider(
+        name="lazy_provider",
+        builder=lambda model, context: LazyFirstCall(model),
+    )
+    result = Optimizer(
+        device="cpu",
+        config=FAST_CONFIG,
+        providers=(provider,),
+    ).optimize(nn.Linear(4, 4).eval(), torch.randn(2, 4))
+    candidate = next(
+        candidate
+        for candidate in result.report.candidates
+        if candidate.name == "lazy_provider"
+    )
+
+    assert candidate.first_call_time_s is not None
+    assert candidate.first_call_time_s >= 0.015
+    assert candidate.setup_time_s >= 0
+
+
+def test_amortized_selection_changes_after_break_even():
+    baseline = CandidateReport(
+        name="eager_fp32",
+        latency_ms=2.0,
+        first_call_time_s=0.002,
+        parity=True,
+    )
+    provider = CandidateReport(
+        name="compiled_provider",
+        latency_ms=1.0,
+        first_call_time_s=0.2,
+        parity=True,
+    )
+    reports = [baseline, provider]
+
+    _populate_candidate_metrics(reports, expected_calls=50)
+    short_lived = AutoOptimizer(
+        nn.Identity(),
+        device="cpu",
+        config=replace(FAST_CONFIG, expected_calls=50),
+    )
+    short_selection, _ = short_lived._select_candidate(reports)
+
+    _populate_candidate_metrics(reports, expected_calls=500)
+    long_lived = AutoOptimizer(
+        nn.Identity(),
+        device="cpu",
+        config=replace(FAST_CONFIG, expected_calls=500),
+    )
+    long_selection, reason = long_lived._select_candidate(reports)
+
+    assert provider.break_even_calls_vs_baseline == 199
+    assert short_selection == "eager_fp32"
+    assert long_selection == "compiled_provider"
+    assert "500 calls" in reason

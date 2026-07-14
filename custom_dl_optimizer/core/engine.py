@@ -1,9 +1,10 @@
 import copy
 import logging
+import math
 import statistics
 import time
 from collections.abc import Iterable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 import torch
@@ -146,7 +147,16 @@ def _compare_outputs(
     )
 
 
-def _benchmark_ms(
+@dataclass(frozen=True)
+class _BenchmarkStats:
+    median_ms: float
+    minimum_ms: float
+    p90_ms: float
+    stdev_ms: float
+    samples_ms: tuple[float, ...]
+
+
+def _benchmark_latency(
     model: nn.Module,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -155,7 +165,7 @@ def _benchmark_ms(
     warmup: int,
     iterations: int,
     repeats: int,
-) -> float:
+) -> _BenchmarkStats:
     samples: list[float] = []
     model.eval()
     with torch.inference_mode():
@@ -179,7 +189,24 @@ def _benchmark_ms(
                 for _ in range(iterations):
                     model(*args, **kwargs)
                 samples.append((time.perf_counter() - started) * 1000.0 / iterations)
-    return float(statistics.median(samples))
+    p90 = (
+        statistics.quantiles(samples, n=10, method="inclusive")[8]
+        if len(samples) > 1
+        else samples[0]
+    )
+    return _BenchmarkStats(
+        median_ms=float(statistics.median(samples)),
+        minimum_ms=float(min(samples)),
+        p90_ms=float(p90),
+        stdev_ms=float(statistics.stdev(samples)) if len(samples) > 1 else 0.0,
+        samples_ms=tuple(float(sample) for sample in samples),
+    )
+
+
+def _elapsed_s(started: float, device: torch.device) -> float:
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    return time.perf_counter() - started
 
 
 def _copy_candidate_model(
@@ -197,7 +224,17 @@ def _copy_candidate_model(
         return model
 
 
-def _populate_relative_metrics(candidate_reports: list[CandidateReport]) -> None:
+def _first_call_ms(candidate: CandidateReport) -> float:
+    if candidate.first_call_time_s is not None:
+        return candidate.first_call_time_s * 1000.0
+    return candidate.latency_ms or 0.0
+
+
+def _populate_candidate_metrics(
+    candidate_reports: list[CandidateReport],
+    *,
+    expected_calls: int | None,
+) -> None:
     eager = next(
         (
             candidate
@@ -214,6 +251,22 @@ def _populate_relative_metrics(candidate_reports: list[CandidateReport]) -> None
         ),
         None,
     )
+    built_in_baselines = [
+        candidate
+        for candidate in candidate_reports
+        if candidate.name in {"eager_fp32", "native"}
+        and candidate.parity
+        and candidate.latency_ms is not None
+    ]
+    steady_state_baseline = (
+        min(
+            built_in_baselines,
+            key=lambda candidate: candidate.latency_ms or float("inf"),
+        )
+        if built_in_baselines
+        else None
+    )
+
     for candidate in candidate_reports:
         if not candidate.latency_ms:
             continue
@@ -222,6 +275,38 @@ def _populate_relative_metrics(candidate_reports: list[CandidateReport]) -> None
             candidate.speedup_vs_eager = eager.latency_ms / candidate.latency_ms
         if native is not None and native.latency_ms:
             candidate.speedup_vs_native = native.latency_ms / candidate.latency_ms
+        if expected_calls is not None:
+            candidate.projected_total_ms = (
+                candidate.setup_time_s * 1000.0
+                + _first_call_ms(candidate)
+                + candidate.latency_ms * max(expected_calls - 1, 0)
+            )
+
+        if (
+            steady_state_baseline is None
+            or candidate is steady_state_baseline
+            or steady_state_baseline.latency_ms is None
+            or candidate.latency_ms >= steady_state_baseline.latency_ms
+        ):
+            continue
+        baseline_cold_overhead = (
+            steady_state_baseline.setup_time_s * 1000.0
+            + _first_call_ms(steady_state_baseline)
+            - steady_state_baseline.latency_ms
+        )
+        candidate_cold_overhead = (
+            candidate.setup_time_s * 1000.0
+            + _first_call_ms(candidate)
+            - candidate.latency_ms
+        )
+        latency_saved = steady_state_baseline.latency_ms - candidate.latency_ms
+        candidate.break_even_calls_vs_baseline = max(
+            1,
+            math.ceil(
+                max(0.0, candidate_cold_overhead - baseline_cold_overhead)
+                / latency_saved
+            ),
+        )
 
 
 class AutoOptimizer:
@@ -237,6 +322,7 @@ class AutoOptimizer:
         config: OptimizationConfig | None = None,
         providers: tuple[CandidateProvider, ...] = (),
     ) -> None:
+        initialization_started = time.perf_counter()
         resolved_device = torch.device(
             device or ("cuda" if torch.cuda.is_available() else "cpu")
         )
@@ -264,6 +350,10 @@ class AutoOptimizer:
         self.config = resolved_config
         self.providers = providers
         self.last_report: OptimizationReport | None = None
+        self._initialization_time_s = _elapsed_s(
+            initialization_started,
+            self.device,
+        )
 
     def prepare_inputs(
         self,
@@ -276,6 +366,7 @@ class AutoOptimizer:
         use_channels_last = (
             self.config.channels_last if channels_last is None else channels_last
         ) and self.device.type == "cuda"
+
         def transform(value: Any) -> Any:
             return _prepare_tensor(
                 value,
@@ -297,6 +388,7 @@ class AutoOptimizer:
         *example_args: Any,
         **example_kwargs: Any,
     ) -> tuple[nn.Module, OptimizationReport]:
+        optimization_started = time.perf_counter()
         if not example_args and not example_kwargs:
             raise ValueError("At least one example input is required")
 
@@ -317,6 +409,12 @@ class AutoOptimizer:
             input_signature=_input_signature(base_args, base_kwargs),
             channels_last=use_channels_last,
             amp=self.config.enable_amp and self.device.type == "cuda",
+            expected_calls=self.config.expected_calls,
+            selection_basis=(
+                "projected_total_time"
+                if self.config.expected_calls is not None
+                else "steady_state_latency"
+            ),
             runtime=inspect_runtime(self.device),
             warnings=list(self._warnings),
         )
@@ -340,6 +438,7 @@ class AutoOptimizer:
         failed_candidates: list[CandidateReport] = []
 
         if self.config.benchmark_eager:
+            started = time.perf_counter()
             eager_core = _copy_candidate_model(
                 self.model,
                 warnings=report.warnings,
@@ -352,7 +451,12 @@ class AutoOptimizer:
                 channels_last=False,
             ).eval()
             candidate_inputs["eager_fp32"] = (base_args, base_kwargs)
+            candidate_setup_times["eager_fp32"] = _elapsed_s(
+                started,
+                self.device,
+            )
 
+        started = time.perf_counter()
         native_core = _copy_candidate_model(
             self.model,
             warnings=report.warnings,
@@ -367,8 +471,10 @@ class AutoOptimizer:
             channels_last=use_channels_last,
         ).eval()
         candidate_inputs["native"] = (selection_args, selection_kwargs)
+        candidate_setup_times["native"] = _elapsed_s(started, self.device)
 
         if self.config.enable_fx:
+            started = time.perf_counter()
             graph_source = _copy_candidate_model(
                 self.model,
                 warnings=report.warnings,
@@ -390,6 +496,10 @@ class AutoOptimizer:
                     channels_last=use_channels_last,
                 ).eval()
                 candidate_inputs["fx"] = (selection_args, selection_kwargs)
+                candidate_setup_times["fx"] = _elapsed_s(
+                    started,
+                    self.device,
+                )
             elif graph_report.error:
                 report.warnings.append(f"FX tracing failed: {graph_report.error}")
 
@@ -398,6 +508,7 @@ class AutoOptimizer:
             and hasattr(torch, "compile")
             and self.config.enable_fx
         ):
+            started = time.perf_counter()
             compiler_source = _copy_candidate_model(
                 self.model,
                 warnings=report.warnings,
@@ -420,25 +531,26 @@ class AutoOptimizer:
                         enable_amp=self.config.enable_amp,
                         channels_last=use_channels_last,
                     ).eval()
-                    started = time.perf_counter()
                     compiled = torch.compile(
                         compiler_wrapper,
                         mode=self.config.compile_mode,
                         fullgraph=False,
                         dynamic=self.config.dynamic_shapes,
                     )
-                    with torch.inference_mode():
-                        compiled(*selection_args, **selection_kwargs)
-                    if self.device.type == "cuda":
-                        torch.cuda.synchronize(self.device)
                     candidates["fx_inductor"] = compiled
                     candidate_inputs["fx_inductor"] = (
                         selection_args,
                         selection_kwargs,
                     )
-                    candidate_setup_times["fx_inductor"] = time.perf_counter() - started
+                    candidate_setup_times["fx_inductor"] = _elapsed_s(
+                        started,
+                        self.device,
+                    )
                 except Exception as exc:
                     report.warnings.append(f"TorchInductor candidate failed: {exc!r}")
+                    failed_candidates.append(
+                        CandidateReport(name="fx_inductor", error=repr(exc)[:1000])
+                    )
 
         provider_context = CandidateContext(
             device=self.device,
@@ -462,12 +574,12 @@ class AutoOptimizer:
                         CandidateReport(name=name, error="Provider is unavailable in this runtime")
                     )
                     continue
+                started = time.perf_counter()
                 provider_model = _copy_candidate_model(
                     self.model,
                     warnings=report.warnings,
                     candidate_name=name,
                 )
-                started = time.perf_counter()
                 provider_candidate = provider.build(provider_model, provider_context).eval()
                 candidate = _InferenceWrapper(
                     provider_candidate,
@@ -475,7 +587,7 @@ class AutoOptimizer:
                     enable_amp=False,
                     channels_last=use_channels_last,
                 ).eval()
-                candidate_setup_times[name] = time.perf_counter() - started
+                candidate_setup_times[name] = _elapsed_s(started, self.device)
                 candidates[name] = candidate
                 candidate_inputs[name] = (selection_args, selection_kwargs)
             except Exception as exc:
@@ -487,8 +599,15 @@ class AutoOptimizer:
             candidate_report.setup_time_s = candidate_setup_times.get(name, 0.0)
             benchmark_args, benchmark_kwargs = candidate_inputs[name]
             try:
+                if self.device.type == "cuda":
+                    torch.cuda.synchronize(self.device)
+                first_call_started = time.perf_counter()
                 with torch.inference_mode():
                     output = candidate(*benchmark_args, **benchmark_kwargs)
+                candidate_report.first_call_time_s = _elapsed_s(
+                    first_call_started,
+                    self.device,
+                )
                 parity, max_error, mean_error = _compare_outputs(
                     reference,
                     output,
@@ -499,7 +618,7 @@ class AutoOptimizer:
                 candidate_report.max_abs_error = max_error
                 candidate_report.mean_abs_error = mean_error
                 if candidate_report.parity:
-                    candidate_report.latency_ms = _benchmark_ms(
+                    benchmark = _benchmark_latency(
                         candidate,
                         benchmark_args,
                         benchmark_kwargs,
@@ -508,6 +627,11 @@ class AutoOptimizer:
                         iterations=self.config.selection_iterations,
                         repeats=self.config.selection_repeats,
                     )
+                    candidate_report.latency_ms = benchmark.median_ms
+                    candidate_report.latency_min_ms = benchmark.minimum_ms
+                    candidate_report.latency_p90_ms = benchmark.p90_ms
+                    candidate_report.latency_stdev_ms = benchmark.stdev_ms
+                    candidate_report.latency_samples_ms = list(benchmark.samples_ms)
                     candidate_models[name] = candidate
                 else:
                     candidate_report.error = "Output parity check failed"
@@ -516,6 +640,10 @@ class AutoOptimizer:
             report.candidates.append(candidate_report)
         report.candidates.extend(failed_candidates)
 
+        _populate_candidate_metrics(
+            report.candidates,
+            expected_calls=self.config.expected_calls,
+        )
         selected_name, reason = self._select_candidate(report.candidates)
         if selected_name not in candidate_models:
             selected_name = "eager_fp32"
@@ -534,7 +662,9 @@ class AutoOptimizer:
             candidate_report.selected = candidate_report.name == selected_name
         report.selected_plan = selected_name
         report.selection_reason = reason
-        _populate_relative_metrics(report.candidates)
+        report.optimization_time_s = (
+            self._initialization_time_s + time.perf_counter() - optimization_started
+        )
         self.last_report = report
 
         if self.config.verbose:
@@ -553,6 +683,18 @@ class AutoOptimizer:
         if not valid:
             return "", "No candidate completed successfully."
 
+        def selection_cost(candidate: CandidateReport) -> float:
+            if self.config.expected_calls is None:
+                return candidate.latency_ms or float("inf")
+            if candidate.projected_total_ms is not None:
+                return candidate.projected_total_ms
+            return (
+                candidate.setup_time_s * 1000.0
+                + _first_call_ms(candidate)
+                + (candidate.latency_ms or float("inf"))
+                * max(self.config.expected_calls - 1, 0)
+            )
+
         baselines = [
             candidate
             for candidate in valid
@@ -566,25 +708,31 @@ class AutoOptimizer:
         if not baselines:
             if not custom:
                 return "", "No selectable candidate completed successfully."
-            fastest = min(custom, key=lambda candidate: candidate.latency_ms or float("inf"))
+            fastest = min(custom, key=selection_cost)
             return fastest.name, "Built-in plans were invalid; selected fastest valid provider."
 
-        baseline = min(
-            baselines,
-            key=lambda candidate: candidate.latency_ms or float("inf"),
-        )
+        baseline = min(baselines, key=selection_cost)
         if not custom:
-            return baseline.name, f"Selected fastest valid built-in plan: {baseline.name}."
-
-        fastest_custom = min(
-            custom,
-            key=lambda candidate: candidate.latency_ms or float("inf"),
-        )
-        required_latency = (baseline.latency_ms or float("inf")) / self.config.min_speedup
-        if (fastest_custom.latency_ms or float("inf")) <= required_latency:
-            speedup = (baseline.latency_ms or 0.0) / (
-                fastest_custom.latency_ms or float("inf")
+            qualifier = (
+                "lowest projected-cost"
+                if self.config.expected_calls is not None
+                else "fastest valid"
             )
+            return baseline.name, f"Selected {qualifier} built-in plan: {baseline.name}."
+
+        fastest_custom = min(custom, key=selection_cost)
+        baseline_cost = selection_cost(baseline)
+        custom_cost = selection_cost(fastest_custom)
+        required_cost = baseline_cost / self.config.min_speedup
+        if custom_cost <= required_cost:
+            speedup = baseline_cost / custom_cost
+            if self.config.expected_calls is not None:
+                return (
+                    fastest_custom.name,
+                    f"Projected total cost is {speedup:.3f}x faster than {baseline.name} "
+                    f"over {self.config.expected_calls} calls and cleared the "
+                    f"{self.config.min_speedup:.3f}x selection threshold.",
+                )
             return (
                 fastest_custom.name,
                 f"Measured {speedup:.3f}x over {baseline.name} and cleared the "
@@ -592,6 +740,11 @@ class AutoOptimizer:
             )
         return (
             baseline.name,
-            "Custom plans did not clear the measured speedup threshold; "
-            f"using {baseline.name}.",
+            (
+                f"Custom plans did not clear the projected-total threshold over "
+                f"{self.config.expected_calls} calls; using {baseline.name}."
+                if self.config.expected_calls is not None
+                else "Custom plans did not clear the steady-state speedup threshold; "
+                f"using {baseline.name}."
+            ),
         )

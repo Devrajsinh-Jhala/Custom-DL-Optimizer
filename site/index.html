@@ -202,7 +202,7 @@ result.save_report("optimization.json")</code></pre>
           <div class="section-heading reveal">
             <p class="eyebrow dark">Bring your strongest baseline</p>
             <h2>Compare built-ins, vendor compilers, and research backends under one policy.</h2>
-            <p>Providers return a callable module. Custom-DL handles isolation, first-call setup timing, parity, steady-state measurement, relative speedup, and fallback.</p>
+            <p>Providers return a callable module. Custom-DL handles isolation, build and first-call timing, parity, median/P90 measurement, expected-call amortization, and fallback.</p>
           </div>
           <div class="provider-grid reveal">
             <div class="provider-column">
@@ -228,7 +228,7 @@ result.save_report("optimization.json")</code></pre>
               <i data-lucide="file-json" aria-hidden="true"></i>
               <div>
                 <strong>One comparable report</strong>
-                <span>Latency, setup, parity, errors, speedups, environment</span>
+                <span>Cold start, median/P90, break-even, parity, speedups, environment</span>
               </div>
             </div>
           </div>

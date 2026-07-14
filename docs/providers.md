@@ -37,7 +37,7 @@ result = optimizer.optimize(model, sample)
 - Perform any required first-call compilation inside `build` or the returned module.
 - Report unavailability through `is_available`; do not silently fall back to another backend under the same name.
 
-The engine records provider build time, validates output, measures latency, and considers the provider only when it clears `min_speedup` against the fastest valid built-in candidate.
+The engine records provider build time and lazy first invocation separately, validates output, measures repeat latency statistics, and considers the provider only when it clears `min_speedup` against the fastest valid built-in candidate. When `expected_calls` is configured, the comparison uses projected total cost rather than steady-state latency alone.
 
 ## Torch-TensorRT
 
