@@ -11,7 +11,7 @@ from .runtime import RuntimeCapabilities, inspect_runtime
 try:
     __version__ = version("custom-dl-optimizer")
 except PackageNotFoundError:  # Source checkout before installation.
-    __version__ = "2.0.0"
+    __version__ = "2.1.0"
 
 __all__ = [
     "AutoOptimizer",

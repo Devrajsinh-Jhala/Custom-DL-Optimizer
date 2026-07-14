@@ -3,11 +3,11 @@
 [![PyPI](https://img.shields.io/pypi/v/custom-dl-optimizer.svg)](https://pypi.org/project/custom-dl-optimizer/)
 [![CI](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/actions/workflows/tests.yml/badge.svg)](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/actions/workflows/tests.yml)
 [![Python](https://img.shields.io/pypi/pyversions/custom-dl-optimizer.svg)](https://pypi.org/project/custom-dl-optimizer/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-137a55.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-137a55.svg)](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/LICENSE)
 
 Custom-DL-Optimizer is an auditable PyTorch inference plan selector. Give it a model and representative inputs; it profiles eligible execution plans, validates every candidate against eager FP32, and returns the fastest plan that clears your configured gain threshold.
 
-[Project site](https://devrajsinh-jhala.github.io/Custom-DL-Optimizer/) | [Usage](docs/usage.md) | [Provider API](docs/providers.md) | [Agent toolkit](docs/agents.md) | [Research notebook](Custom_DL_Optimizer_Research_Colab.ipynb)
+[Project site](https://devrajsinh-jhala.github.io/Custom-DL-Optimizer/) | [Usage](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/usage.md) | [Provider API](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md) | [Agent toolkit](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/agents.md) | [Research notebook](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/Custom_DL_Optimizer_Research_Colab.ipynb)
 
 > Status: research alpha. Use it for controlled inference experiments and deployment feasibility checks. It complements rather than replaces TorchInductor, Torch-TensorRT, TensorRT, ONNX Runtime, TVM, or vendor profilers.
 
@@ -156,7 +156,7 @@ optimizer = Optimizer(
 result = optimizer.optimize(model, sample)
 ```
 
-See [docs/providers.md](docs/providers.md) for isolation, input, correctness, and dependency rules. Torch-TensorRT officially supports use as a `torch.compile` backend; ONNX Runtime uses ordered execution providers and may require a wrapper that converts between PyTorch tensors and the session API.
+See the [provider documentation](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md) for isolation, input, correctness, and dependency rules. Torch-TensorRT officially supports use as a `torch.compile` backend; ONNX Runtime uses ordered execution providers and may require a wrapper that converts between PyTorch tensors and the session API.
 
 ## Agent Toolkit
 
@@ -180,7 +180,7 @@ response = toolkit.invoke(
 )
 ```
 
-The toolkit has no network client and never evaluates caller-provided code. See [docs/agents.md](docs/agents.md).
+The toolkit has no network client and never evaluates caller-provided code. See the [agent documentation](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/agents.md).
 
 ## Runtime Provenance
 
@@ -193,7 +193,7 @@ Reports include Python and PyTorch versions, device name and type, CUDA/cuDNN ve
 
 ## v1 Compatibility
 
-`AutoOptimizer` remains available for one transition release, but new code should use `Optimizer`. The primary v2 contract returns one `OptimizationResult` rather than a `(module, report)` tuple. See [docs/migration-v2.md](docs/migration-v2.md).
+`AutoOptimizer` remains available for one transition release, but new code should use `Optimizer`. The primary v2 contract returns one `OptimizationResult` rather than a `(module, report)` tuple. See the [version 2 migration guide](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/migration-v2.md).
 
 ## Historical Research Snapshot
 
@@ -221,7 +221,7 @@ python -m build
 python -m twine check dist/*
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md) before contributing or publishing.
+Read [CONTRIBUTING.md](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/CONTRIBUTING.md), [SECURITY.md](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/SECURITY.md), and [CHANGELOG.md](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/CHANGELOG.md) before contributing or publishing.
 
 ## Limitations
 
@@ -234,6 +234,6 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CHANGE
 
 ## Citation and License
 
-Citation metadata is in [CITATION.cff](CITATION.cff). Report the package version, hardware, CUDA, PyTorch, candidate providers, shapes, precision, warmup, iterations, and tolerances.
+Citation metadata is in [CITATION.cff](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/CITATION.cff). Report the package version, hardware, CUDA, PyTorch, candidate providers, shapes, precision, warmup, iterations, and tolerances.
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT License](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/LICENSE).
