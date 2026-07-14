@@ -2,9 +2,15 @@
 
 PyPI versions are immutable. Every correction after publication requires a new version.
 
-## Trusted Publishing
+## One-Time Trusted Publishing Setup
 
-Production releases use GitHub Actions OpenID Connect rather than a long-lived API token. Configure the existing PyPI project with:
+Production releases use GitHub Actions OpenID Connect rather than a long-lived API token. Do not add `token.txt`, a `.pypirc`, or a PyPI token to GitHub Secrets.
+
+1. Open the repository's **Settings > Environments** page on GitHub.
+2. Create an environment named `pypi`.
+3. Add a required reviewer to that environment if your GitHub plan supports deployment protection rules.
+4. Open the `custom-dl-optimizer` project on PyPI and select **Manage > Publishing**.
+5. Add a GitHub Actions Trusted Publisher with these exact values:
 
 ```text
 Owner: Devrajsinh-Jhala
@@ -13,14 +19,20 @@ Workflow: publish.yml
 Environment: pypi
 ```
 
-After configuration, publish a GitHub release. The workflow builds, validates, and uploads the distributions with a short-lived credential.
+The workflow filename and environment are case-sensitive identity claims. After this setup, PyPI issues a short-lived credential only to the matching publish job.
 
-## Local Release Checks
+## Prepare a Release
+
+Start from a clean, current `master` branch. Update the version in `pyproject.toml`, `custom_dl_optimizer/__init__.py`'s source-checkout fallback, `CHANGELOG.md`, and `CITATION.cff`. The version must not already exist on PyPI.
 
 ```bash
+git switch master
+git pull --ff-only
 python -m pip install -e ".[dev]"
-python -m ruff check custom_dl_optimizer tests examples
+python -m ruff check custom_dl_optimizer tests examples tools
 python -m pytest
+python tools/validate_research_notebook.py
+python -c "import shutil; [shutil.rmtree(path, ignore_errors=True) for path in ('build', 'dist', 'custom_dl_optimizer.egg-info')]"
 python -m build
 python -m twine check dist/*
 ```
@@ -34,6 +46,30 @@ python -m venv .release-venv
 ```
 
 On Windows, use `.release-venv\Scripts\python.exe`.
+
+## Publish Version 2.0.0
+
+Once the Trusted Publisher exists and `master` is green, create a published GitHub Release. This command creates the `v2.0.0` tag from `master` and publishes the release:
+
+```bash
+gh release create v2.0.0 \
+  --repo Devrajsinh-Jhala/Custom-DL-Optimizer \
+  --target master \
+  --title "v2.0.0" \
+  --generate-notes
+```
+
+On PowerShell, place the command on one line or replace each `\` with a backtick. Publishing the GitHub Release triggers `.github/workflows/publish.yml`. The workflow rejects a release whose tag does not exactly match `v` plus the package version, builds fresh distributions, checks them with Twine, and uploads through Trusted Publishing.
+
+Verify the release after the workflow succeeds:
+
+```bash
+python -m pip index versions custom-dl-optimizer
+python -m pip install --upgrade custom-dl-optimizer==2.0.0
+python -c "import custom_dl_optimizer as package; print(package.__version__)"
+```
+
+Do not rerun a failed upload blindly. PyPI does not permit replacing files for an existing version; inspect the workflow log and increment the version when any distribution was already accepted.
 
 ## TestPyPI
 

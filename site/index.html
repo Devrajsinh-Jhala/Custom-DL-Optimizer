@@ -207,23 +207,29 @@ result.save_report("optimization.json")</code></pre>
           <div class="provider-grid reveal">
             <div class="provider-column">
               <span class="provider-label">Built in</span>
-              <strong>Eager FP32</strong>
-              <strong>Native AMP/layout</strong>
-              <strong>FX rewrites</strong>
-              <strong>FX + Inductor</strong>
+              <ul class="provider-list">
+                <li>Eager FP32</li>
+                <li>Native AMP/layout</li>
+                <li>FX rewrites</li>
+                <li>FX + Inductor</li>
+              </ul>
             </div>
             <div class="provider-connector" aria-hidden="true"><i data-lucide="arrow-right-left"></i></div>
             <div class="provider-column external">
               <span class="provider-label">Provider API</span>
-              <strong>Torch-TensorRT</strong>
-              <strong>ONNX Runtime wrapper</strong>
-              <strong>Private compiler</strong>
-              <strong>Experimental pass</strong>
+              <ul class="provider-list">
+                <li>Torch-TensorRT</li>
+                <li>ONNX Runtime wrapper</li>
+                <li>Private compiler</li>
+                <li>Experimental pass</li>
+              </ul>
             </div>
             <div class="provider-output">
               <i data-lucide="file-json" aria-hidden="true"></i>
-              <strong>One comparable report</strong>
-              <span>Latency, setup, parity, errors, speedups, environment</span>
+              <div>
+                <strong>One comparable report</strong>
+                <span>Latency, setup, parity, errors, speedups, environment</span>
+              </div>
             </div>
           </div>
           <a class="button button-outline reveal" href="guides.html#providers">
@@ -269,7 +275,7 @@ result.save_report("optimization.json")</code></pre>
               </tbody>
             </table>
           </div>
-          <p class="evidence-note reveal"><i data-lucide="info" aria-hidden="true"></i> Historical hardware snapshot, not a v2 benchmark and not a state-of-the-art claim. Rerun the notebook before citing results.</p>
+          <p class="evidence-note reveal"><i data-lucide="info" aria-hidden="true"></i><span>Historical hardware snapshot, not a v2 benchmark and not a state-of-the-art claim. Rerun the notebook before citing results.</span></p>
         </div>
       </section>
 
