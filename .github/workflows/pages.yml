@@ -2,7 +2,7 @@ name: Deploy GitHub Pages
 
 on:
   push:
-    branches: ["master", "codex/package-site-release"]
+    branches: ["master"]
     paths:
       - "site/**"
       - ".github/workflows/pages.yml"

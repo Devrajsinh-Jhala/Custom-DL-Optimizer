@@ -3,7 +3,7 @@ import time
 import torch
 from torchvision.models import resnet50
 
-from custom_dl_optimizer import AutoOptimizer, OptimizationConfig
+from custom_dl_optimizer import OptimizationConfig, Optimizer
 
 
 def benchmark(model, inputs, iterations=50, warmup=10):
@@ -42,18 +42,14 @@ def main():
         enable_compile=torch.cuda.is_available(),
         compile_mode="max-autotune",
     )
-    optimizer = AutoOptimizer(model, device=device, config=config)
-    optimized, report = optimizer.optimize_with_report(inputs)
-    args, kwargs = optimizer.prepare_inputs(
-        inputs,
-        channels_last=report.channels_last,
-    )
-    optimized_ms = benchmark(optimized, args[0])
+    optimizer = Optimizer(device=device, config=config)
+    result = optimizer.optimize(model, inputs)
+    optimized_ms = benchmark(result, inputs)
 
     print(f"Baseline latency: {baseline_ms:.3f} ms")
     print(f"Optimized latency: {optimized_ms:.3f} ms")
     print(f"Speedup: {baseline_ms / optimized_ms:.2f}x")
-    print(f"Selected plan: {report.selected_plan}")
+    print(f"Selected plan: {result.selected_plan}")
 
 
 if __name__ == "__main__":

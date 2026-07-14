@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from custom_dl_optimizer import AutoOptimizer, OptimizationConfig
+from custom_dl_optimizer import OptimizationConfig, Optimizer
 
 
 class SmallCNN(nn.Module):
@@ -28,21 +28,18 @@ def main():
         enable_compile=torch.cuda.is_available(),
         selection_iterations=5,
     )
-    optimizer = AutoOptimizer(model, device=device, config=config)
-    optimized, report = optimizer.optimize_with_report(inputs)
-    args, kwargs = optimizer.prepare_inputs(
-        inputs,
-        channels_last=report.channels_last,
-    )
+    optimizer = Optimizer(device=device, config=config)
+    result = optimizer.optimize(model, inputs)
 
     with torch.inference_mode():
         baseline = model(inputs).float()
-        output = optimized(*args, **kwargs).float().cpu()
+        output = result(inputs).float().cpu()
 
     print("Output shape:", tuple(output.shape))
     print("Parity:", torch.allclose(baseline, output, rtol=5e-2, atol=5e-2))
-    print("Selected plan:", report.selected_plan)
-    print("Reason:", report.selection_reason)
+    print("Selected plan:", result.selected_plan)
+    print("Reason:", result.report.selection_reason)
+    result.save_report("custom_dl_optimizer_report.json")
 
 
 if __name__ == "__main__":

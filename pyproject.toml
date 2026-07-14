@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "custom-dl-optimizer"
-version = "1.1.0"
-description = "A regression-aware PyTorch inference optimizer using FX, Triton, and TorchInductor"
+version = "2.0.0"
+description = "An auditable PyTorch inference plan selector with FX, Triton, compiler plugins, and agent tools"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -23,6 +23,8 @@ keywords = [
   "optimization",
   "torch-fx",
   "torchinductor",
+  "ai-agents",
+  "benchmarking",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",

@@ -24,7 +24,7 @@ Use `Custom_DL_Optimizer_Research_Colab.ipynb` for paper-quality measurements. T
 
 ## Historical T4 Snapshot
 
-These measurements came from the earlier fixed-path research notebook. They are retained for reproducibility and must not be presented as v1.1 package-level results.
+These measurements came from the earlier fixed-path research notebook. They are retained for reproducibility and must not be presented as version 2 package-level results.
 
 | Model | Speedup vs Eager FP32 | Speedup vs AMP/NHWC | Speedup vs AMP/NHWC + Inductor |
 | --- | ---: | ---: | ---: |
@@ -40,7 +40,7 @@ Average CNN speedups:
 - 1.09x over AMP/NHWC
 - 1.01x over AMP/NHWC + TorchInductor
 
-Interpretation: most of the gain over eager FP32 comes from known precision, layout, and compiler optimizations. The fixed path roughly matched TorchInductor across the suite and regressed on MobileNet-V2. Version 1.1 introduces measured plan selection so a custom path must clear a guard threshold before replacing the native path.
+Interpretation: most of the gain over eager FP32 comes from known precision, layout, and compiler optimizations. The fixed path roughly matched TorchInductor across the suite and regressed on MobileNet-V2. Version 2 records eager-relative and native-relative evidence, and a custom or provider path must clear a guard threshold before replacing the native path.
 
 ## Reporting Template
 
@@ -69,6 +69,7 @@ For a credible systems paper, compare against progressively stronger baselines:
 2. PyTorch AMP
 3. PyTorch AMP + channels-last
 4. PyTorch AMP + channels-last + TorchInductor
-5. Custom-DL-Optimizer adaptive selection
+5. External provider candidates under the same measurement policy
+6. Custom-DL-Optimizer adaptive selection
 
 Do not claim SOTA unless the same hardware, model, precision, batch size, and input shape are compared against TensorRT, Torch-TensorRT, TVM, XLA, and TorchInductor.

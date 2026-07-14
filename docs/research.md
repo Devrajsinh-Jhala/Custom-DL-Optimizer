@@ -28,7 +28,7 @@ Historical claim for the fixed-path Tesla T4 research run:
 On a Tesla T4, Custom-DL-Optimizer achieved up to 4.11x speedup over PyTorch eager FP32 and 2.46x average speedup across five CNN architectures. Against stronger AMP/NHWC and AMP/NHWC+TorchInductor baselines, it achieved 1.09x and 1.01x average speedup, respectively, with the strongest compiler-baseline gain on ResNet-50 at 1.11x.
 ```
 
-Do not describe this historical table as a v1.1 package benchmark. Rerun the current notebook and report confidence intervals before publication.
+Do not describe this historical table as a version 2 package benchmark. Rerun the current notebook and report confidence intervals before publication.
 
 ## Claims to Avoid
 

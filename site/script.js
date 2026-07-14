@@ -19,6 +19,7 @@ nav?.querySelectorAll("a").forEach((link) => {
   link.addEventListener("click", () => {
     nav.classList.remove("is-open");
     navToggle?.setAttribute("aria-expanded", "false");
+    navToggle?.setAttribute("aria-label", "Open navigation");
   });
 });
 
@@ -37,9 +38,7 @@ const writeClipboard = async (text) => {
   textarea.select();
   const copied = document.execCommand("copy");
   textarea.remove();
-  if (!copied) {
-    throw new Error("Clipboard copy was rejected");
-  }
+  if (!copied) throw new Error("Clipboard copy was rejected");
 };
 
 const copyText = async (text, button) => {
@@ -70,19 +69,66 @@ document.querySelectorAll("[data-copy-target]").forEach((button) => {
   });
 });
 
-const observer = new IntersectionObserver(
-  (entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add("is-visible");
-        observer.unobserve(entry.target);
-      }
-    });
-  },
-  { threshold: 0.12 },
-);
+const revealElements = document.querySelectorAll(".reveal");
+if ("IntersectionObserver" in window) {
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.12 },
+  );
+  revealElements.forEach((element) => observer.observe(element));
+} else {
+  revealElements.forEach((element) => element.classList.add("is-visible"));
+}
 
-document.querySelectorAll(".reveal").forEach((element) => observer.observe(element));
+const race = document.querySelector("[data-candidate-race]");
+const raceStatus = document.querySelector("[data-decision-status]");
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let raceTimers = [];
+
+const clearRaceTimers = () => {
+  raceTimers.forEach((timer) => window.clearTimeout(timer));
+  raceTimers = [];
+};
+
+const setRacePhase = (phase, status) => {
+  if (!race) return;
+  race.classList.toggle("is-measuring", phase !== "reset");
+  race.classList.toggle("is-decided", phase === "decided");
+  race.querySelector('[data-candidate="external"]')?.classList.toggle(
+    "is-rejected",
+    phase === "validating" || phase === "decided",
+  );
+  race.querySelector('[data-candidate="compiler"]')?.classList.toggle(
+    "is-selected",
+    phase === "decided",
+  );
+  if (raceStatus) raceStatus.textContent = status;
+};
+
+const runRace = () => {
+  clearRaceTimers();
+  setRacePhase("reset", "Preparing candidates");
+  raceTimers.push(window.setTimeout(() => setRacePhase("measuring", "Measuring steady-state latency"), 350));
+  raceTimers.push(window.setTimeout(() => setRacePhase("validating", "External provider rejected: parity failed"), 2100));
+  raceTimers.push(window.setTimeout(() => setRacePhase("decided", "FX + Inductor selected with native fallback ready"), 3500));
+  raceTimers.push(window.setTimeout(runRace, 7200));
+};
+
+if (race) {
+  if (reducedMotion) {
+    setRacePhase("decided", "FX + Inductor selected with native fallback ready");
+  } else {
+    runRace();
+  }
+}
+
 document.querySelectorAll("[data-year]").forEach((element) => {
   element.textContent = String(new Date().getFullYear());
 });

@@ -15,6 +15,7 @@ class OptimizationConfig:
     compile_mode: str = "default"
     dynamic_shapes: bool = False
     verify_outputs: bool = True
+    benchmark_eager: bool = True
     rtol: float = 5e-2
     atol: float = 5e-2
     selection_warmup: int = 3

@@ -10,7 +10,9 @@ import torch
 import torch.nn as nn
 
 from custom_dl_optimizer.config import OptimizationConfig
+from custom_dl_optimizer.providers import CandidateContext, CandidateProvider
 from custom_dl_optimizer.report import CandidateReport, OptimizationReport
+from custom_dl_optimizer.runtime import inspect_runtime
 
 from .graph_surgeon import optimize_graph
 from .profiler import analyze_bottlenecks
@@ -105,37 +107,42 @@ def _compare_outputs(
     rtol: float,
     atol: float,
 ) -> tuple[bool, float, float]:
-    reference_tensors = list(_walk_values(reference))
-    candidate_tensors = list(_walk_values(candidate))
-    if len(reference_tensors) != len(candidate_tensors):
-        return False, float("inf"), float("inf")
-
-    allclose = True
     max_errors: list[float] = []
     mean_errors: list[float] = []
-    for ref, cand in zip(reference_tensors, candidate_tensors, strict=True):
-        if isinstance(ref, torch.Tensor) != isinstance(cand, torch.Tensor):
-            return False, float("inf"), float("inf")
-        if not isinstance(ref, torch.Tensor):
-            allclose = allclose and ref == cand
-            continue
-        if ref.shape != cand.shape:
-            return False, float("inf"), float("inf")
-        ref_float = ref.detach().float()
-        cand_float = cand.detach().float()
-        diff = (ref_float - cand_float).abs()
-        max_errors.append(float(diff.max().item()) if diff.numel() else 0.0)
-        mean_errors.append(float(diff.mean().item()) if diff.numel() else 0.0)
-        allclose = allclose and torch.allclose(
-            ref_float,
-            cand_float,
-            rtol=rtol,
-            atol=atol,
-        )
+
+    def compare(ref: Any, cand: Any) -> bool:
+        if isinstance(ref, torch.Tensor) or isinstance(cand, torch.Tensor):
+            if not isinstance(ref, torch.Tensor) or not isinstance(cand, torch.Tensor):
+                return False
+            if ref.shape != cand.shape:
+                return False
+            ref_float = ref.detach().float()
+            cand_float = cand.detach().float()
+            diff = (ref_float - cand_float).abs()
+            max_errors.append(float(diff.max().item()) if diff.numel() else 0.0)
+            mean_errors.append(float(diff.mean().item()) if diff.numel() else 0.0)
+            return bool(torch.allclose(ref_float, cand_float, rtol=rtol, atol=atol))
+        if type(ref) is not type(cand):
+            return False
+        if isinstance(ref, dict):
+            if ref.keys() != cand.keys():
+                return False
+            return all(compare(ref[key], cand[key]) for key in ref)
+        if isinstance(ref, (tuple, list)):
+            return len(ref) == len(cand) and all(
+                compare(ref_item, cand_item)
+                for ref_item, cand_item in zip(ref, cand, strict=True)
+            )
+        try:
+            return bool(ref == cand)
+        except (TypeError, ValueError):
+            return False
+
+    allclose = compare(reference, candidate)
     return (
         bool(allclose),
-        max(max_errors, default=0.0),
-        statistics.mean(mean_errors) if mean_errors else 0.0,
+        max(max_errors, default=0.0) if allclose or max_errors else float("inf"),
+        statistics.mean(mean_errors) if mean_errors else (0.0 if allclose else float("inf")),
     )
 
 
@@ -175,6 +182,48 @@ def _benchmark_ms(
     return float(statistics.median(samples))
 
 
+def _copy_candidate_model(
+    model: nn.Module,
+    *,
+    warnings: list[str],
+    candidate_name: str,
+) -> nn.Module:
+    try:
+        return copy.deepcopy(model)
+    except Exception as exc:
+        warnings.append(
+            f"Could not isolate candidate {candidate_name!r}; reused the working model: {exc!r}"
+        )
+        return model
+
+
+def _populate_relative_metrics(candidate_reports: list[CandidateReport]) -> None:
+    eager = next(
+        (
+            candidate
+            for candidate in candidate_reports
+            if candidate.name == "eager_fp32" and candidate.latency_ms
+        ),
+        None,
+    )
+    native = next(
+        (
+            candidate
+            for candidate in candidate_reports
+            if candidate.name == "native" and candidate.latency_ms
+        ),
+        None,
+    )
+    for candidate in candidate_reports:
+        if not candidate.latency_ms:
+            continue
+        candidate.calls_per_second = 1000.0 / candidate.latency_ms
+        if eager is not None and eager.latency_ms:
+            candidate.speedup_vs_eager = eager.latency_ms / candidate.latency_ms
+        if native is not None and native.latency_ms:
+            candidate.speedup_vs_native = native.latency_ms / candidate.latency_ms
+
+
 class AutoOptimizer:
     """Profile candidate PyTorch inference plans and return the fastest safe one."""
 
@@ -186,6 +235,7 @@ class AutoOptimizer:
         channels_last: bool | None = None,
         *,
         config: OptimizationConfig | None = None,
+        providers: tuple[CandidateProvider, ...] = (),
     ) -> None:
         resolved_device = torch.device(
             device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -212,6 +262,7 @@ class AutoOptimizer:
         self.model = model.to(resolved_device).eval()
         self.device = resolved_device
         self.config = resolved_config
+        self.providers = providers
         self.last_report: OptimizationReport | None = None
 
     def prepare_inputs(
@@ -266,6 +317,7 @@ class AutoOptimizer:
             input_signature=_input_signature(base_args, base_kwargs),
             channels_last=use_channels_last,
             amp=self.config.enable_amp and self.device.type == "cuda",
+            runtime=inspect_runtime(self.device),
             warnings=list(self._warnings),
         )
 
@@ -283,7 +335,29 @@ class AutoOptimizer:
                 report.warnings.append(f"Operator profiling failed: {exc!r}")
 
         candidates: dict[str, nn.Module] = {}
-        native_core = self.model
+        candidate_inputs: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+        candidate_setup_times: dict[str, float] = {}
+        failed_candidates: list[CandidateReport] = []
+
+        if self.config.benchmark_eager:
+            eager_core = _copy_candidate_model(
+                self.model,
+                warnings=report.warnings,
+                candidate_name="eager_fp32",
+            )
+            candidates["eager_fp32"] = _InferenceWrapper(
+                eager_core,
+                device=self.device,
+                enable_amp=False,
+                channels_last=False,
+            ).eval()
+            candidate_inputs["eager_fp32"] = (base_args, base_kwargs)
+
+        native_core = _copy_candidate_model(
+            self.model,
+            warnings=report.warnings,
+            candidate_name="native",
+        )
         if use_channels_last:
             native_core = native_core.to(memory_format=torch.channels_last)
         candidates["native"] = _InferenceWrapper(
@@ -292,10 +366,16 @@ class AutoOptimizer:
             enable_amp=self.config.enable_amp,
             channels_last=use_channels_last,
         ).eval()
+        candidate_inputs["native"] = (selection_args, selection_kwargs)
 
         if self.config.enable_fx:
-            graph_model, graph_report = optimize_graph(
+            graph_source = _copy_candidate_model(
                 self.model,
+                warnings=report.warnings,
+                candidate_name="fx",
+            )
+            graph_model, graph_report = optimize_graph(
+                graph_source,
                 enable_conv_bn_folding=self.config.enable_conv_bn_folding,
                 enable_triton=self.config.enable_triton,
             )
@@ -309,6 +389,7 @@ class AutoOptimizer:
                     enable_amp=self.config.enable_amp,
                     channels_last=use_channels_last,
                 ).eval()
+                candidate_inputs["fx"] = (selection_args, selection_kwargs)
             elif graph_report.error:
                 report.warnings.append(f"FX tracing failed: {graph_report.error}")
 
@@ -317,8 +398,13 @@ class AutoOptimizer:
             and hasattr(torch, "compile")
             and self.config.enable_fx
         ):
-            compiler_graph, compiler_report = optimize_graph(
+            compiler_source = _copy_candidate_model(
                 self.model,
+                warnings=report.warnings,
+                candidate_name="fx_inductor",
+            )
+            compiler_graph, compiler_report = optimize_graph(
+                compiler_source,
                 enable_conv_bn_folding=self.config.enable_conv_bn_folding,
                 enable_triton=False,
             )
@@ -346,23 +432,63 @@ class AutoOptimizer:
                     if self.device.type == "cuda":
                         torch.cuda.synchronize(self.device)
                     candidates["fx_inductor"] = compiled
-                    compile_setup_time = time.perf_counter() - started
+                    candidate_inputs["fx_inductor"] = (
+                        selection_args,
+                        selection_kwargs,
+                    )
+                    candidate_setup_times["fx_inductor"] = time.perf_counter() - started
                 except Exception as exc:
                     report.warnings.append(f"TorchInductor candidate failed: {exc!r}")
-                    compile_setup_time = 0.0
-            else:
-                compile_setup_time = 0.0
-        else:
-            compile_setup_time = 0.0
+
+        provider_context = CandidateContext(
+            device=self.device,
+            config=self.config,
+            example_args=selection_args,
+            example_kwargs=selection_kwargs,
+        )
+        for provider in self.providers:
+            name = provider.name.strip()
+            if not name or name in candidates:
+                failed_candidates.append(
+                    CandidateReport(
+                        name=name or "unnamed_provider",
+                        error="Provider name is empty or conflicts with another candidate",
+                    )
+                )
+                continue
+            try:
+                if not provider.is_available(provider_context):
+                    failed_candidates.append(
+                        CandidateReport(name=name, error="Provider is unavailable in this runtime")
+                    )
+                    continue
+                provider_model = _copy_candidate_model(
+                    self.model,
+                    warnings=report.warnings,
+                    candidate_name=name,
+                )
+                started = time.perf_counter()
+                provider_candidate = provider.build(provider_model, provider_context).eval()
+                candidate = _InferenceWrapper(
+                    provider_candidate,
+                    device=self.device,
+                    enable_amp=False,
+                    channels_last=use_channels_last,
+                ).eval()
+                candidate_setup_times[name] = time.perf_counter() - started
+                candidates[name] = candidate
+                candidate_inputs[name] = (selection_args, selection_kwargs)
+            except Exception as exc:
+                failed_candidates.append(CandidateReport(name=name, error=repr(exc)[:1000]))
 
         candidate_models: dict[str, nn.Module] = {}
         for name, candidate in candidates.items():
             candidate_report = CandidateReport(name=name)
-            if name == "fx_inductor":
-                candidate_report.setup_time_s = compile_setup_time
+            candidate_report.setup_time_s = candidate_setup_times.get(name, 0.0)
+            benchmark_args, benchmark_kwargs = candidate_inputs[name]
             try:
                 with torch.inference_mode():
-                    output = candidate(*selection_args, **selection_kwargs)
+                    output = candidate(*benchmark_args, **benchmark_kwargs)
                 parity, max_error, mean_error = _compare_outputs(
                     reference,
                     output,
@@ -375,8 +501,8 @@ class AutoOptimizer:
                 if candidate_report.parity:
                     candidate_report.latency_ms = _benchmark_ms(
                         candidate,
-                        selection_args,
-                        selection_kwargs,
+                        benchmark_args,
+                        benchmark_kwargs,
                         device=self.device,
                         warmup=self.config.selection_warmup,
                         iterations=self.config.selection_iterations,
@@ -388,26 +514,27 @@ class AutoOptimizer:
             except Exception as exc:
                 candidate_report.error = repr(exc)[:1000]
             report.candidates.append(candidate_report)
+        report.candidates.extend(failed_candidates)
 
         selected_name, reason = self._select_candidate(report.candidates)
         if selected_name not in candidate_models:
             selected_name = "eager_fp32"
             reason = "No optimized candidate passed; returned FP32 eager fallback."
-            fallback = _InferenceWrapper(
-                self.model,
-                device=self.device,
-                enable_amp=False,
-                channels_last=False,
-            ).eval()
-            candidate_models[selected_name] = fallback
-            report.candidates.append(
-                CandidateReport(name=selected_name, parity=True, selected=True)
-            )
+            if selected_name not in candidate_models:
+                fallback = _InferenceWrapper(
+                    self.model,
+                    device=self.device,
+                    enable_amp=False,
+                    channels_last=False,
+                ).eval()
+                candidate_models[selected_name] = fallback
+                report.candidates.append(CandidateReport(name=selected_name, parity=True))
 
         for candidate_report in report.candidates:
             candidate_report.selected = candidate_report.name == selected_name
         report.selected_plan = selected_name
         report.selection_reason = reason
+        _populate_relative_metrics(report.candidates)
         self.last_report = report
 
         if self.config.verbose:
@@ -426,29 +553,45 @@ class AutoOptimizer:
         if not valid:
             return "", "No candidate completed successfully."
 
-        native = next((candidate for candidate in valid if candidate.name == "native"), None)
-        custom = [candidate for candidate in valid if candidate.name != "native"]
-        if native is None:
+        baselines = [
+            candidate
+            for candidate in valid
+            if candidate.name in {"eager_fp32", "native"}
+        ]
+        custom = [
+            candidate
+            for candidate in valid
+            if candidate.name not in {"eager_fp32", "native"}
+        ]
+        if not baselines:
+            if not custom:
+                return "", "No selectable candidate completed successfully."
             fastest = min(custom, key=lambda candidate: candidate.latency_ms or float("inf"))
-            return fastest.name, "Native plan was invalid; selected fastest valid plan."
+            return fastest.name, "Built-in plans were invalid; selected fastest valid provider."
+
+        baseline = min(
+            baselines,
+            key=lambda candidate: candidate.latency_ms or float("inf"),
+        )
         if not custom:
-            return native.name, "No custom plan completed successfully."
+            return baseline.name, f"Selected fastest valid built-in plan: {baseline.name}."
 
         fastest_custom = min(
             custom,
             key=lambda candidate: candidate.latency_ms or float("inf"),
         )
-        required_latency = (native.latency_ms or float("inf")) / self.config.min_speedup
+        required_latency = (baseline.latency_ms or float("inf")) / self.config.min_speedup
         if (fastest_custom.latency_ms or float("inf")) <= required_latency:
-            speedup = (native.latency_ms or 0.0) / (
+            speedup = (baseline.latency_ms or 0.0) / (
                 fastest_custom.latency_ms or float("inf")
             )
             return (
                 fastest_custom.name,
-                f"Measured {speedup:.3f}x over native and cleared the "
+                f"Measured {speedup:.3f}x over {baseline.name} and cleared the "
                 f"{self.config.min_speedup:.3f}x selection threshold.",
             )
         return (
-            native.name,
-            "Custom plans did not clear the measured speedup threshold; using native.",
+            baseline.name,
+            "Custom plans did not clear the measured speedup threshold; "
+            f"using {baseline.name}.",
         )
