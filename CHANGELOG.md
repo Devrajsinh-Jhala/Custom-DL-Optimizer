@@ -14,11 +14,16 @@ All notable changes to this project are documented here.
 - Pluggable `CandidateProvider` protocol for external compilers and runtimes.
 - Dependency-neutral `OptimizationAgentToolkit` with registered-workload boundaries.
 - JSON report persistence and v1-to-v2 migration documentation.
+- Optional expected-call amortization for cold-start-aware plan selection.
+- Separate candidate construction and lazy first-call timing.
+- Per-candidate latency samples, minimum, P90, standard deviation, and break-even calls.
+- Total optimizer wall-clock timing and explicit report selection basis.
 
 ### Changed
 
 - Eager FP32 is benchmarked by default as an explicit reference candidate.
 - Candidate models are isolated before memory-format conversion and provider compilation.
+- External provider first-call compilation is measured separately from provider construction.
 - Version 2 documentation uses a single result object as the primary contract.
 
 ### Deprecated

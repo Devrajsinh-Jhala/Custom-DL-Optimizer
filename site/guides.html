@@ -48,6 +48,7 @@ optimizer = Optimizer(
     device="cuda",
     config=OptimizationConfig(
         enable_compile=True,
+        expected_calls=10_000,
         min_speedup=1.02,
     ),
 )
@@ -55,7 +56,7 @@ result = optimizer.optimize(model.eval(), sample)
 output = result(sample)
 result.save_report("artifacts/optimization.json")</code></pre>
           <h3>Read the decision</h3>
-          <p>Each candidate records steady-state latency, setup time, calls per second, speedup against eager and native, parity, numerical error, and any failure. The parent report records graph rewrites and runtime provenance.</p>
+          <p>Each candidate records construction and lazy first-call time, repeat samples, median and P90 latency, projected total time, break-even calls, throughput, relative speedups, parity, numerical error, and failures. The parent report records its selection basis, total optimization time, graph rewrites, and runtime provenance.</p>
           <h3>Correctness boundary</h3>
           <p>Candidates must preserve output structure and satisfy <code>torch.allclose</code> using configured tolerances. Always run task-level accuracy evaluation before deployment.</p>
         </article>

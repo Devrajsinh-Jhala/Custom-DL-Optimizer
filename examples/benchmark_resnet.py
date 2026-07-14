@@ -41,6 +41,7 @@ def main():
     config = OptimizationConfig(
         enable_compile=torch.cuda.is_available(),
         compile_mode="max-autotune",
+        expected_calls=50_000,
     )
     optimizer = Optimizer(device=device, config=config)
     result = optimizer.optimize(model, inputs)
@@ -50,6 +51,17 @@ def main():
     print(f"Optimized latency: {optimized_ms:.3f} ms")
     print(f"Speedup: {baseline_ms / optimized_ms:.2f}x")
     print(f"Selected plan: {result.selected_plan}")
+    selected = result.report.selected_candidate
+    if selected is not None:
+        print(
+            "Selection median / P90: "
+            f"{selected.latency_ms:.3f} / {selected.latency_p90_ms:.3f} ms"
+        )
+        print(
+            "Setup / first call: "
+            f"{selected.setup_time_s:.3f} / {selected.first_call_time_s:.3f} s"
+        )
+        print(f"Break-even calls: {selected.break_even_calls_vs_baseline}")
 
 
 if __name__ == "__main__":

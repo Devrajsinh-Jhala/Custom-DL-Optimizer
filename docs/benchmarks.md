@@ -58,8 +58,15 @@ Warmup iterations:
 Measured iterations:
 Repeats:
 Timing method:
+Candidate construction time:
+Lazy first-call time:
+Median / P90 / standard deviation:
+Expected production calls (if amortized):
+Break-even calls:
 Output parity tolerance:
 ```
+
+Do not merge construction, lazy compilation, and steady-state latency into one unlabeled number. For short-lived jobs, report projected total time at the expected call volume; for long-running services, report both cold-start evidence and steady-state distributions.
 
 ## Baselines
 

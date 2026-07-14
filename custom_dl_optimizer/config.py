@@ -21,6 +21,7 @@ class OptimizationConfig:
     selection_warmup: int = 3
     selection_iterations: int = 10
     selection_repeats: int = 3
+    expected_calls: int | None = None
     min_speedup: float = 1.02
     copy_model: bool = True
     verbose: bool = False
@@ -32,6 +33,8 @@ class OptimizationConfig:
             raise ValueError("selection_iterations must be at least 1")
         if self.selection_repeats < 1:
             raise ValueError("selection_repeats must be at least 1")
+        if self.expected_calls is not None and self.expected_calls < 1:
+            raise ValueError("expected_calls must be at least 1 when provided")
         if self.min_speedup < 1.0:
             raise ValueError("min_speedup must be at least 1.0")
         if self.rtol < 0 or self.atol < 0:

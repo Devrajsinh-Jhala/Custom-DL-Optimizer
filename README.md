@@ -20,7 +20,9 @@ Custom-DL-Optimizer makes those tradeoffs explicit:
 - measures eager FP32, native AMP/layout, FX, and optional compiler candidates;
 - supports external candidate providers for TensorRT, ONNX Runtime wrappers, private compilers, or research passes;
 - rejects candidates that fail output structure or tolerance checks;
-- records setup time separately from steady-state latency;
+- records construction and lazy first-call time separately from steady-state latency;
+- reports repeat samples, median, repeat-sample P90, standard deviation, and break-even calls;
+- optionally selects by projected total cost for an expected request volume;
 - reports speedup against eager FP32 and the native optimized path;
 - falls back when custom work does not clear `min_speedup`;
 - exports runtime provenance and results as JSON;
@@ -58,6 +60,7 @@ optimizer = Optimizer(
     config=OptimizationConfig(
         enable_compile=torch.cuda.is_available(),
         compile_mode="max-autotune",
+        expected_calls=50_000,
         min_speedup=1.02,
     ),
 )
@@ -80,6 +83,10 @@ for candidate in result.report.candidates:
     print(
         candidate.name,
         candidate.latency_ms,
+        candidate.latency_p90_ms,
+        candidate.first_call_time_s,
+        candidate.projected_total_ms,
+        candidate.break_even_calls_vs_baseline,
         candidate.speedup_vs_eager,
         candidate.speedup_vs_native,
         candidate.parity,
@@ -97,6 +104,20 @@ Built-in plans are:
 | `fx_inductor` | FX preparation followed by TorchInductor |
 
 Only valid candidates participate in selection. Pilot measurements are useful for plan choice; use a full benchmark protocol for publication claims.
+
+## Cold-Start-Aware Selection
+
+Steady-state latency is the default selection basis. For a known serving horizon, set `expected_calls` to include candidate construction, lazy compilation on first invocation, and the remaining steady-state calls:
+
+```python
+config = OptimizationConfig(
+    enable_compile=True,
+    expected_calls=10_000,
+    min_speedup=1.02,
+)
+```
+
+The report exposes `selection_basis="projected_total_time"`, projected total milliseconds for each valid candidate, and its break-even call count against the fastest steady-state built-in baseline. This prevents a short-lived job from choosing a compiler whose build cost cannot be recovered.
 
 ## Compare Another Compiler
 

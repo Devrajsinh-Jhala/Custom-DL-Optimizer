@@ -43,13 +43,15 @@ print(result.selected_plan)
 print(result.report.selection_reason)
 
 for candidate in result.report.candidates:
-    print(candidate.name, candidate.latency_ms, candidate.parity)
+    print(candidate.name, candidate.latency_ms, candidate.latency_p90_ms)
+    print(candidate.setup_time_s, candidate.first_call_time_s)
+    print(candidate.projected_total_ms, candidate.break_even_calls_vs_baseline)
     print(candidate.speedup_vs_eager, candidate.speedup_vs_native)
 
 result.save_report("artifacts/optimization.json")
 ```
 
-The JSON report includes runtime provenance, graph rewrite coverage, setup time, median pilot latency, calls per second, relative speedups, numerical error, and failures.
+The JSON report includes runtime provenance, graph rewrite coverage, construction and first-call time, every repeat sample, median/repeat-sample-P90/standard-deviation latency, projected total time, break-even calls, throughput, relative speedups, numerical error, and failures. These samples are per-repeat averages, so `latency_p90_ms` is not a request-level service-tail percentile.
 
 ## Configuration
 
@@ -67,6 +69,8 @@ Important `OptimizationConfig` fields:
 | `enable_compile` | `False` | Add the FX plus TorchInductor candidate |
 | `dynamic_shapes` | `False` | Request dynamic TorchInductor guards |
 | `verify_outputs` | `True` | Reject parity failures |
+| `selection_repeats` | `3` | Independent averaged timing samples |
+| `expected_calls` | `None` | Select by projected cold-start plus steady-state cost when set |
 | `min_speedup` | `1.02` | Gain required over the fastest valid built-in candidate |
 
 ## Correctness
@@ -75,7 +79,13 @@ Candidates must match eager FP32 output structure and satisfy `torch.allclose` u
 
 ## Compilation Cost
 
-Compiler setup is measured separately in `CandidateReport.setup_time_s`. Steady-state candidate latency excludes setup. For short-lived processes, compare setup time against the expected request volume before deploying a compiled plan.
+`CandidateReport.setup_time_s` measures candidate construction and `first_call_time_s` captures lazy compilation plus the first inference. Steady-state latency excludes both. With `expected_calls=N`, projected cost is:
+
+```text
+setup + first call + median latency * (N - 1)
+```
+
+The selector applies `min_speedup` to that projected total. Without `expected_calls`, it retains steady-state median selection. `break_even_calls_vs_baseline` reports when a faster candidate recovers its additional cold-start cost.
 
 ## CPU Behavior
 
