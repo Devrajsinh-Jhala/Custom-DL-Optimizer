@@ -207,29 +207,25 @@
         </div>
       </section>
 
-      <section class="section quickstart-section" id="quickstart">
-        <div class="section-shell code-layout">
-          <div class="code-copy reveal">
-            <p class="eyebrow dark">Small API, explicit policy</p>
-            <h2>Start with one signature. Grow into the full traffic mix.</h2>
-            <p>The simple call still works. The result remains callable and carries the complete selection report.</p>
-            <div class="code-points">
-              <span><i data-lucide="check" aria-hidden="true"></i> No model-code rewrite</span>
-              <span><i data-lucide="check" aria-hidden="true"></i> Native fallback retained</span>
-              <span><i data-lucide="check" aria-hidden="true"></i> Provider failures isolated</span>
+      <section class="section quickstart-section" id="quickstart" aria-labelledby="quickstart-title">
+        <div class="section-shell">
+          <div class="package-demo-heading reveal">
+            <div>
+              <p class="eyebrow dark">Code in. Callable result out.</p>
+              <h2 id="quickstart-title">See exactly what the package gives you.</h2>
             </div>
+            <p>Use the optimized result like the original module, inspect the evidence that selected it, and persist a portable decision record for review or experiment tracking.</p>
           </div>
-          <div class="code-window reveal" aria-label="Python quick start">
-            <div class="code-toolbar">
-              <span>optimize.py</span>
-              <button class="icon-button" type="button" data-copy-target="quickstart-code" aria-label="Copy quick start" title="Copy code">
-                <i data-lucide="copy" aria-hidden="true"></i>
-              </button>
-            </div>
-            <pre><code id="quickstart-code">from custom_dl_optimizer import (
-    OptimizationConfig,
-    Optimizer,
-)
+
+          <div class="package-demo-grid">
+            <div class="code-window reveal" aria-label="Runnable Python package example">
+              <div class="code-toolbar">
+                <span><i data-lucide="file-code-2" aria-hidden="true"></i> optimize.py</span>
+                <button class="icon-button" type="button" data-copy-target="quickstart-code" aria-label="Copy package demo" title="Copy code">
+                  <i data-lucide="copy" aria-hidden="true"></i>
+                </button>
+              </div>
+              <pre><code id="quickstart-code">from custom_dl_optimizer import OptimizationConfig, Optimizer
 
 optimizer = Optimizer(
     device="cuda",
@@ -243,9 +239,47 @@ optimizer = Optimizer(
 result = optimizer.optimize(model.eval(), sample)
 output = result(sample)
 
-print(result.selected_plan)
-result.save_bundle("artifacts/run")</code></pre>
+candidate = result.report.selected_candidate
+speedup = candidate.speedup_vs_native
+bundle = result.save_bundle("artifacts/run")
+
+print(f"selected      {result.selected_plan}")
+print(f"median_ms     {candidate.latency_ms:.2f}")
+print(f"p90_ms        {candidate.latency_p90_ms:.2f}")
+print(
+    "speedup       baseline"
+    if speedup is None
+    else f"speedup       {speedup:.2f}x vs native"
+)
+print(f"parity        {candidate.parity}")
+print(f"cache_hit     {result.report.cache_hit}")
+print(f"output_shape  {tuple(output.shape)}")
+print(f"saved         {bundle}")</code></pre>
+            </div>
+
+            <div class="result-window reveal" role="region" aria-label="Representative optimizer output">
+              <div class="result-toolbar">
+                <span><i data-lucide="terminal-square" aria-hidden="true"></i> Representative output</span>
+                <span>varies by workload</span>
+              </div>
+              <div class="terminal-command"><span>$</span> python optimize.py</div>
+              <pre><code>selected      fx_inductor
+median_ms     8.41
+p90_ms        8.56
+speedup       1.18x vs native
+parity        True
+cache_hit     False
+output_shape  (8, 10)
+saved         artifacts/run</code></pre>
+              <div class="result-contract" aria-label="Optimization result contents">
+                <div><i data-lucide="play" aria-hidden="true"></i><span><strong>Callable</strong><code>result(sample)</code> runs the selected module.</span></div>
+                <div><i data-lucide="file-chart-column" aria-hidden="true"></i><span><strong>Evidence</strong><code>result.report</code> records candidates, parity, latency, memory, and failures.</span></div>
+                <div><i data-lucide="folder-archive" aria-hidden="true"></i><span><strong>Bundle</strong><code>manifest.json</code> and <code>report.json</code> preserve the decision.</span></div>
+              </div>
+            </div>
           </div>
+
+          <p class="package-demo-note reveal"><i data-lucide="info" aria-hidden="true"></i><span>This output is an illustrative CUDA run, not a universal benchmark. Plan names and measurements change with the model, hardware, PyTorch build, workload profile, and enabled providers.</span></p>
         </div>
       </section>
 
