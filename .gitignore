@@ -16,6 +16,8 @@ venv/
 env/
 
 custom_dl_optimizer_research_outputs/
+.custom-dl-cache/
+artifacts/
 
 # Local secrets / publishing credentials
 token

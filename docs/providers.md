@@ -12,7 +12,7 @@ class CandidateProvider(Protocol):
     def build(self, model: nn.Module, context: CandidateContext) -> nn.Module: ...
 ```
 
-`CandidateContext` contains the resolved device, configuration, and prepared example arguments. `build` receives an isolated model copy and must return an evaluation-mode `nn.Module` compatible with those inputs.
+`CandidateContext` contains the resolved device, configuration, prepared representative arguments, complete workload profile, content-addressed cache key, and an optional provider-owned artifact directory. `build` receives an isolated model copy and must return an evaluation-mode `nn.Module` compatible with every workload case.
 
 ## Function Provider
 
@@ -37,15 +37,51 @@ result = optimizer.optimize(model, sample)
 - Perform any required first-call compilation inside `build` or the returned module.
 - Report unavailability through `is_available`; do not silently fall back to another backend under the same name.
 
-The engine records provider build time and lazy first invocation separately, validates output, measures repeat latency statistics, and considers the provider only when it clears `min_speedup` against the fastest valid built-in candidate. When `expected_calls` is configured, the comparison uses projected total cost rather than steady-state latency alone.
+The engine records provider build time and per-shape lazy first invocations separately, validates every workload output, measures serial request distributions, enforces resource constraints, and considers the provider only when it clears `min_speedup` against the fastest valid built-in candidate. When `expected_calls` is configured, the comparison uses projected total cost rather than steady-state latency alone.
 
-## Torch-TensorRT
+## First-Party Torch-TensorRT Provider
 
-Torch-TensorRT can register a `torch.compile` backend. Import `torch_tensorrt`, then return `torch.compile(model, backend="torch_tensorrt")` from the provider builder. Follow the installed Torch-TensorRT documentation for precision, dynamic shape, engine cache, and serialization settings.
+```python
+from custom_dl_optimizer import TorchTensorRTProvider
 
-## ONNX Runtime
+provider = TorchTensorRTProvider(
+    compile_options={
+        "optimization_level": 3,
+        "min_block_size": 5,
+    }
+)
+```
 
-ONNX Runtime does not return a PyTorch `nn.Module` directly. A provider can export the model and return a small module wrapper around an `InferenceSession`. The wrapper is responsible for tensor conversion or I/O binding. Register execution providers in priority order, such as TensorRT, CUDA, then CPU, and expose the exact provider configuration in your experiment metadata.
+The provider uses the official `torch.compile(..., backend="torch_tensorrt")` path. When a plan cache is configured it enables backend engine reuse and places the TensorRT timing cache in the provider artifact directory. Precision, workspace, dynamic-shape, and compatibility settings remain explicit `compile_options` and are captured in the cache identity.
+
+## First-Party ONNX Runtime Provider
+
+```python
+from custom_dl_optimizer import ONNXRuntimeProvider
+
+provider = ONNXRuntimeProvider(
+    execution_providers=(
+        "TensorrtExecutionProvider",
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider",
+    ),
+)
+```
+
+The provider exports ONNX once per cache key and uses CUDA I/O binding for CUDA sessions. It intentionally accepts only flat positional tensor inputs; outputs may be nested tensor tuples, lists, or dictionaries. Unsupported signatures fail this candidate without affecting other plans. Install `custom-dl-optimizer[onnxruntime]` for CPU or `custom-dl-optimizer[onnxruntime-gpu]` for NVIDIA execution providers.
+
+## First-Party TorchAO Provider
+
+```python
+from custom_dl_optimizer import TorchAOQuantizationProvider
+
+providers = (
+    TorchAOQuantizationProvider(scheme="int8_weight_only"),
+    TorchAOQuantizationProvider(scheme="int4_weight_only", group_size=128),
+)
+```
+
+Supported schemes are `int8_weight_only`, `int8_dynamic`, `int4_weight_only`, `float8_weight_only`, and `float8_dynamic`. Hardware and model compatibility are delegated to TorchAO; unsupported candidates fail visibly. Quantization is never enabled globally, and every quantized plan must clear the same per-case FP32 parity policy.
 
 ## Fair Comparison Checklist
 

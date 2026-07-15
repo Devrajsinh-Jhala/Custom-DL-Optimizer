@@ -1,10 +1,10 @@
 # Research Framing
 
-Custom-DL-Optimizer should be framed as a PyTorch-native micro-compiler for inference optimization.
+Custom-DL-Optimizer should be framed as a workload-aware inference plan selector with compiler passes, provider orchestration, and measured deployment constraints.
 
 ## Research Contribution
 
-The core contribution is not that the package replaces production runtimes such as TensorRT. The contribution is a transparent, regression-aware plan-selection layer that preserves the PyTorch `nn.Module` interface while applying compiler-style transformations:
+The core contribution is not that the package replaces production runtimes such as TensorRT. The contribution is a transparent, regression-aware lifecycle-selection layer that preserves the PyTorch `nn.Module` interface while comparing compiler and runtime plans:
 
 - programmatic runtime profiling
 - FX graph tracing
@@ -12,14 +12,17 @@ The core contribution is not that the package replaces production runtimes such 
 - GPU memory-layout optimization
 - mixed-precision execution
 - optional Triton and TorchInductor candidates
-- numerical validation and measured fallback
+- weighted multi-signature workload selection
+- optional Torch-TensorRT, ONNX Runtime, and TorchAO candidates
+- cold-start amortization and persistent validated decisions
+- numerical validation, resource constraints, and measured fallback
 
 ## Strong Claim
 
 Use this style:
 
 ```text
-Custom-DL-Optimizer profiles multiple PyTorch inference plans and selects a custom graph only when it remains numerically valid and clears a measured gain threshold over the native optimized path.
+Custom-DL-Optimizer selects an inference plan only when it remains valid across the declared workload distribution, satisfies deployment constraints, and clears a measured lifecycle-cost threshold over the fastest valid built-in path.
 ```
 
 Historical claim for the fixed-path Tesla T4 research run:
@@ -42,5 +45,7 @@ Avoid these until a full literature review and controlled comparison are complet
 ## Suggested Paper Title
 
 ```text
-Custom-DL-Optimizer: A Profile-Guided PyTorch Micro-Compiler for Hardware-Aware NVIDIA GPU Inference
+Custom-DL-Optimizer: Constraint-Aware and Cold-Start-Amortized Selection of PyTorch Inference Plans
 ```
+
+Use [paper-launch.md](paper-launch.md) as the required evaluation and claim protocol for the version 2.2 paper.

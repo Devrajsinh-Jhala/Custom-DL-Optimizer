@@ -22,6 +22,17 @@ Use `Custom_DL_Optimizer_Research_Colab.ipynb` for paper-quality measurements. T
 - compiler pass coverage figure
 - output parity figure
 
+Version 2.2 reports can also be exported without notebook-specific parsing:
+
+```bash
+custom-dl-optimizer paper-export \
+  artifacts/resnet50/report.json \
+  artifacts/bert-base/report.json \
+  --output-dir artifacts/paper
+```
+
+This creates candidate and per-case CSV datasets with the raw serial samples, a LaTeX table, a provenance manifest, and median/P99 figures. Install `custom-dl-optimizer[research]` for figure generation or pass `--no-plots` for a standard-library-only export.
+
 ## Historical T4 Snapshot
 
 These measurements came from the earlier fixed-path research notebook. They are retained for reproducibility and must not be presented as version 2 package-level results.
@@ -53,20 +64,25 @@ CUDA:
 PyTorch:
 Triton:
 Batch size:
-Input shape:
+Workload cases, shapes, and normalized weights:
 Warmup iterations:
 Measured iterations:
 Repeats:
 Timing method:
 Candidate construction time:
-Lazy first-call time:
-Median / P90 / standard deviation:
+Per-case lazy first-call time:
+Median / mean / P90 / P95 / P99 / standard deviation:
+95% confidence interval for the mean:
+Incremental warmed CUDA allocation:
 Expected production calls (if amortized):
 Break-even calls:
+Plan-cache state and cache key:
+Resource constraints:
 Output parity tolerance:
+Task-level calibration metric:
 ```
 
-Do not merge construction, lazy compilation, and steady-state latency into one unlabeled number. For short-lived jobs, report projected total time at the expected call volume; for long-running services, report both cold-start evidence and steady-state distributions.
+Do not merge construction, lazy compilation, and steady-state latency into one unlabeled number. The package percentiles come from serial invocations and must not be labeled as concurrent service-tail latency. For short-lived jobs, report projected total time at the expected call volume; for long-running services, report both cold-start evidence and steady-state distributions. Report cache hits and misses separately.
 
 ## Baselines
 
@@ -76,7 +92,9 @@ For a credible systems paper, compare against progressively stronger baselines:
 2. PyTorch AMP
 3. PyTorch AMP + channels-last
 4. PyTorch AMP + channels-last + TorchInductor
-5. External provider candidates under the same measurement policy
-6. Custom-DL-Optimizer adaptive selection
+5. Torch-TensorRT with declared compilation and cache settings
+6. ONNX Runtime CUDA and TensorRT execution providers with I/O binding
+7. Applicable TorchAO quantization candidates
+8. Custom-DL-Optimizer adaptive selection
 
 Do not claim SOTA unless the same hardware, model, precision, batch size, and input shape are compared against TensorRT, Torch-TensorRT, TVM, XLA, and TorchInductor.

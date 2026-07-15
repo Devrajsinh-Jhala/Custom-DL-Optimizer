@@ -23,6 +23,14 @@ class OptimizationConfig:
     selection_repeats: int = 3
     expected_calls: int | None = None
     min_speedup: float = 1.02
+    max_setup_time_s: float | None = None
+    max_first_call_time_s: float | None = None
+    max_peak_memory_mb: float | None = None
+    measure_peak_memory: bool = True
+    plan_cache_dir: str | None = None
+    reuse_cached_plan: bool = True
+    cache_validation_iterations: int = 2
+    cache_max_latency_regression: float = 1.25
     copy_model: bool = True
     verbose: bool = False
 
@@ -37,5 +45,19 @@ class OptimizationConfig:
             raise ValueError("expected_calls must be at least 1 when provided")
         if self.min_speedup < 1.0:
             raise ValueError("min_speedup must be at least 1.0")
+        if self.max_setup_time_s is not None and self.max_setup_time_s < 0:
+            raise ValueError("max_setup_time_s must be non-negative")
+        if self.max_first_call_time_s is not None and self.max_first_call_time_s < 0:
+            raise ValueError("max_first_call_time_s must be non-negative")
+        if self.max_peak_memory_mb is not None and self.max_peak_memory_mb < 0:
+            raise ValueError("max_peak_memory_mb must be non-negative")
+        if self.max_peak_memory_mb is not None and not self.measure_peak_memory:
+            raise ValueError(
+                "measure_peak_memory must be enabled when max_peak_memory_mb is set"
+            )
+        if self.cache_validation_iterations < 1:
+            raise ValueError("cache_validation_iterations must be at least 1")
+        if self.cache_max_latency_regression < 1.0:
+            raise ValueError("cache_max_latency_regression must be at least 1.0")
         if self.rtol < 0 or self.atol < 0:
             raise ValueError("output tolerances must be non-negative")

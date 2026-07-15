@@ -19,6 +19,21 @@ toolkit.register_workload(
 
 Only objects registered by the host application can be optimized.
 
+Register a complete traffic distribution with `register_workload_profile`:
+
+```python
+profile = WorkloadProfile(
+    name="encoder-serving",
+    cases=(
+        WorkloadCase("short", args=(short_tokens,), weight=70),
+        WorkloadCase("long", args=(long_tokens,), weight=30),
+    ),
+)
+toolkit.register_workload_profile("encoder", encoder, profile)
+```
+
+The profile remains in process with the model and tensors. The agent still receives only the registered workload name and JSON evidence.
+
 ## Declared Tools
 
 - `custom_dl_inspect_runtime`

@@ -47,15 +47,15 @@ python -m venv .release-venv
 
 On Windows, use `.release-venv\Scripts\python.exe`.
 
-## Publish Version 2.1.0
+## Publish Version 2.2.0
 
-Once the Trusted Publisher exists and `master` is green, create a published GitHub Release. This command creates the `v2.1.0` tag from `master` and publishes the release:
+Once the Trusted Publisher exists and `master` is green, create a published GitHub Release. This command creates the `v2.2.0` tag from `master` and publishes the release:
 
 ```bash
-gh release create v2.1.0 \
+gh release create v2.2.0 \
   --repo Devrajsinh-Jhala/Custom-DL-Optimizer \
   --target master \
-  --title "v2.1.0" \
+  --title "v2.2.0" \
   --generate-notes
 ```
 
@@ -65,7 +65,7 @@ Verify the release after the workflow succeeds:
 
 ```bash
 python -m pip index versions custom-dl-optimizer
-python -m pip install --upgrade custom-dl-optimizer==2.1.0
+python -m pip install --upgrade custom-dl-optimizer==2.2.0
 python -c "import custom_dl_optimizer as package; print(package.__version__)"
 ```
 
@@ -79,7 +79,7 @@ When publishing manually, delete old build artifacts before creating the distrib
 Remove-Item -Recurse -Force build, dist, custom_dl_optimizer.egg-info -ErrorAction SilentlyContinue
 python -m build
 python -m twine check dist/*
-python -m twine upload --verbose dist/custom_dl_optimizer-2.1.0*
+python -m twine upload --verbose dist/custom_dl_optimizer-2.2.0*
 ```
 
 Use `__token__` as the username and the PyPI API token as the password. A `400 Bad Request` after a version has appeared on PyPI normally means that the filename already exists; increment the version instead of retrying the same file.

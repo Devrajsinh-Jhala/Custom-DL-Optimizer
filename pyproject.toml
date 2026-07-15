@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "custom-dl-optimizer"
-version = "2.1.0"
+version = "2.2.0"
 description = "An auditable PyTorch inference plan selector with FX, Triton, compiler plugins, and agent tools"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,8 +43,14 @@ dependencies = [
   "torch>=2.1",
 ]
 
+[project.scripts]
+custom-dl-optimizer = "custom_dl_optimizer.cli:main"
+
 [project.optional-dependencies]
 vision = ["torchvision>=0.16"]
+onnxruntime = ["onnx>=1.16", "onnxruntime>=1.18"]
+onnxruntime-gpu = ["onnx>=1.16", "onnxruntime-gpu>=1.18"]
+quantization = ["torchao>=0.10"]
 dev = [
   "build>=1.0",
   "pytest>=7.0",
@@ -76,6 +82,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = ["Custom_DL_Optimizer_Research_Colab.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

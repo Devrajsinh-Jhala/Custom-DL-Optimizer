@@ -32,12 +32,40 @@ class GraphSurgeryReport:
 
 
 @dataclass
+class WorkloadCaseReport:
+    name: str
+    weight: float
+    input_signature: str
+    latency_ms: float | None = None
+    latency_mean_ms: float | None = None
+    latency_min_ms: float | None = None
+    latency_p90_ms: float | None = None
+    latency_p95_ms: float | None = None
+    latency_p99_ms: float | None = None
+    latency_stdev_ms: float | None = None
+    latency_ci95_low_ms: float | None = None
+    latency_ci95_high_ms: float | None = None
+    latency_samples_ms: list[float] = field(default_factory=list)
+    first_call_time_s: float | None = None
+    peak_memory_mb: float | None = None
+    parity: bool = False
+    max_abs_error: float | None = None
+    mean_abs_error: float | None = None
+    error: str = ""
+
+
+@dataclass
 class CandidateReport:
     name: str
     latency_ms: float | None = None
+    latency_mean_ms: float | None = None
     latency_min_ms: float | None = None
     latency_p90_ms: float | None = None
+    latency_p95_ms: float | None = None
+    latency_p99_ms: float | None = None
     latency_stdev_ms: float | None = None
+    latency_ci95_low_ms: float | None = None
+    latency_ci95_high_ms: float | None = None
     latency_samples_ms: list[float] = field(default_factory=list)
     parity: bool = False
     max_abs_error: float | None = None
@@ -50,12 +78,16 @@ class CandidateReport:
     calls_per_second: float | None = None
     speedup_vs_eager: float | None = None
     speedup_vs_native: float | None = None
+    peak_memory_mb: float | None = None
+    constraint_violations: list[str] = field(default_factory=list)
+    workload_cases: list[WorkloadCaseReport] = field(default_factory=list)
     error: str = ""
 
 
 @dataclass
 class OptimizationReport:
     device: str
+    workload_name: str = "workload"
     selected_plan: str = "native"
     selection_reason: str = ""
     input_signature: str = ""
@@ -64,6 +96,10 @@ class OptimizationReport:
     expected_calls: int | None = None
     selection_basis: str = "steady_state_latency"
     optimization_time_s: float = 0.0
+    cache_key: str = ""
+    cache_hit: bool = False
+    cache_record_path: str = ""
+    cache_lookup_time_s: float = 0.0
     runtime: RuntimeCapabilities | None = None
     operator_profile: list[OperatorProfile] = field(default_factory=list)
     graph: GraphSurgeryReport = field(default_factory=GraphSurgeryReport)

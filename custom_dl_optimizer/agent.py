@@ -6,13 +6,13 @@ from typing import Any
 import torch.nn as nn
 
 from .optimizer import OptimizationResult, Optimizer
+from .workload import WorkloadCase, WorkloadProfile
 
 
 @dataclass
 class _RegisteredWorkload:
     model: nn.Module
-    args: tuple[Any, ...]
-    kwargs: dict[str, Any]
+    profile: WorkloadProfile
     description: str
 
 
@@ -41,8 +41,36 @@ class OptimizationAgentToolkit:
             raise ValueError("At least one example input is required")
         self._workloads[normalized] = _RegisteredWorkload(
             model=model,
-            args=example_args,
-            kwargs=example_kwargs,
+            profile=WorkloadProfile(
+                name=normalized,
+                cases=(
+                    WorkloadCase(
+                        name="default",
+                        args=example_args,
+                        kwargs=example_kwargs,
+                    ),
+                ),
+                expected_calls=self.optimizer.config.expected_calls,
+            ),
+            description=description,
+        )
+
+    def register_workload_profile(
+        self,
+        name: str,
+        model: nn.Module,
+        profile: WorkloadProfile,
+        *,
+        description: str = "",
+    ) -> None:
+        normalized = name.strip()
+        if not normalized:
+            raise ValueError("workload name must not be empty")
+        if normalized in self._workloads:
+            raise ValueError(f"A workload named {normalized!r} is already registered")
+        self._workloads[normalized] = _RegisteredWorkload(
+            model=model,
+            profile=profile,
             description=description,
         )
 
@@ -107,10 +135,9 @@ class OptimizationAgentToolkit:
             raise KeyError(f"Unknown registered workload: {workload_name!r}")
         if tool_name == "custom_dl_optimize":
             workload = self._workloads[workload_name]
-            result = self.optimizer.optimize(
+            result = self.optimizer.optimize_workload(
                 workload.model,
-                *workload.args,
-                **workload.kwargs,
+                workload.profile,
             )
             self._results[workload_name] = result
             return result.report.as_dict()

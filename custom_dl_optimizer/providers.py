@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 import torch
 import torch.nn as nn
 
 from .config import OptimizationConfig
+from .workload import WorkloadProfile
 
 
 @dataclass(frozen=True)
@@ -18,6 +20,9 @@ class CandidateContext:
     config: OptimizationConfig
     example_args: tuple[Any, ...]
     example_kwargs: dict[str, Any]
+    workload_profile: WorkloadProfile | None = None
+    cache_key: str = ""
+    artifact_dir: Path | None = None
 
 
 class CandidateProvider(Protocol):
@@ -43,3 +48,12 @@ class FunctionCandidateProvider:
 
     def build(self, model: nn.Module, context: CandidateContext) -> nn.Module:
         return self.builder(model, context)
+
+    def cache_identity(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "builder": (
+                f"{getattr(self.builder, '__module__', '')}."
+                f"{getattr(self.builder, '__qualname__', type(self.builder).__qualname__)}"
+            ),
+        }

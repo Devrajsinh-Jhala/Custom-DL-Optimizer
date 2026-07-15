@@ -6,6 +6,7 @@
     <meta name="description" content="Custom-DL-Optimizer version 2 usage, provider, agent, and migration guides.">
     <meta name="theme-color" content="#0b100e">
     <title>Guides | Custom-DL-Optimizer</title>
+    <link rel="icon" type="image/jpeg" href="assets/og-v2.jpg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
@@ -30,9 +31,9 @@
     <main class="guide-main" id="guide-main">
       <div class="section-shell">
         <header class="guide-intro">
-          <p class="eyebrow dark">Version 2 documentation</p>
+          <p class="eyebrow dark">Version 2.2 documentation</p>
           <h1>Build an optimization workflow you can audit.</h1>
-          <p>These guides cover the public result API, third-party candidate providers, bounded agent tools, and migration from version 1.</p>
+          <p>These guides cover weighted workloads, persistent plan decisions, first-party runtime providers, bounded agent tools, and migration from version 1.</p>
           <nav class="guide-nav" aria-label="On this page">
             <a href="#usage">Usage</a><a href="#providers">Providers</a><a href="#agents">Agents</a><a href="#migration">Migration</a>
           </nav>
@@ -40,45 +41,54 @@
 
         <article class="guide-article" id="usage">
           <p class="eyebrow dark">Usage</p>
-          <h2>Optimize a representative signature.</h2>
-          <p>Supply the model and example positional or keyword tensors exactly as serving code will call them. Selection remains specific to those shapes, dtypes, device, and software versions.</p>
-          <pre><code>from custom_dl_optimizer import OptimizationConfig, Optimizer
+          <h2>Optimize the serving distribution.</h2>
+          <p>A single signature remains supported. For production selection, supply weighted cases for the shapes, batches, dtypes, and keyword forms that actually receive traffic.</p>
+          <pre><code>from custom_dl_optimizer import (
+    OptimizationConfig, Optimizer,
+    WorkloadCase, WorkloadProfile,
+)
 
 optimizer = Optimizer(
     device="cuda",
     config=OptimizationConfig(
         enable_compile=True,
-        expected_calls=10_000,
+        plan_cache_dir=".custom-dl-cache",
         min_speedup=1.02,
     ),
 )
-result = optimizer.optimize(model.eval(), sample)
-output = result(sample)
-result.save_report("artifacts/optimization.json")</code></pre>
+profile = WorkloadProfile(
+    name="serving",
+    expected_calls=10_000,
+    cases=(
+        WorkloadCase("b1", args=(batch_1,), weight=80),
+        WorkloadCase("b8", args=(batch_8,), weight=20),
+    ),
+)
+result = optimizer.optimize_workload(model.eval(), profile)
+result.save_bundle("artifacts/optimization")</code></pre>
           <h3>Read the decision</h3>
-          <p>Each candidate records construction and lazy first-call time, repeat samples, median and P90 latency, projected total time, break-even calls, throughput, relative speedups, parity, numerical error, and failures. The parent report records its selection basis, total optimization time, graph rewrites, and runtime provenance.</p>
+          <p>Each candidate records per-case first calls and parity, serial P50/P90/P95/P99 samples, mean confidence bounds, incremental CUDA allocation, constraints, projected total time, break-even calls, and failures. Cached winners are revalidated before reuse.</p>
           <h3>Correctness boundary</h3>
           <p>Candidates must preserve output structure and satisfy <code>torch.allclose</code> using configured tolerances. Always run task-level accuracy evaluation before deployment.</p>
         </article>
 
         <article class="guide-article" id="providers">
           <p class="eyebrow dark">Candidate providers</p>
-          <h2>Compare another compiler under the same policy.</h2>
-          <p>A provider declares a unique name, availability check, and builder. The builder receives an isolated model plus prepared example inputs and returns a callable <code>nn.Module</code>.</p>
-          <pre><code>from custom_dl_optimizer import FunctionCandidateProvider, Optimizer
-
-provider = FunctionCandidateProvider(
-    name="my_backend",
-    availability=lambda context: context.device.type == "cuda",
-    builder=lambda model, context: compile_model(
-        model,
-        context.example_args,
-    ),
+          <h2>Compare maintained runtimes under the same policy.</h2>
+          <p>First-party providers cover Torch-TensorRT, ONNX Runtime, and TorchAO. Private backends can still implement the provider protocol.</p>
+          <pre><code>from custom_dl_optimizer import (
+    ONNXRuntimeProvider, Optimizer,
+    TorchAOQuantizationProvider,
+    TorchTensorRTProvider,
 )
 
 result = Optimizer(
     device="cuda",
-    providers=(provider,),
+    providers=(
+        TorchTensorRTProvider(),
+        ONNXRuntimeProvider(),
+        TorchAOQuantizationProvider(),
+    ),
 ).optimize(model, sample)</code></pre>
           <h3>Fair comparison</h3>
           <p>Keep transfers and precision consistent, separate engine-build cost from steady-state latency, warm caches, expose provider configuration, and never silently run another backend under the same provider name.</p>

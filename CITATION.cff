@@ -8,7 +8,7 @@ authors:
 repository-code: "https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer"
 url: "https://devrajsinh-jhala.github.io/Custom-DL-Optimizer/"
 license: MIT
-version: 2.1.0
+version: 2.2.0
 date-released: 2026-07-14
 keywords:
   - PyTorch
