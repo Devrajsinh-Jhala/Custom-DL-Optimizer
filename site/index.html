@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Custom-DL-Optimizer measures PyTorch inference plans, rejects incorrect or slower candidates, and returns an auditable result.">
-    <meta name="theme-color" content="#0b100e">
-    <meta property="og:title" content="Custom-DL-Optimizer v2">
-    <meta property="og:description" content="Measure every plan. Keep the fastest valid one.">
+    <meta name="description" content="Custom-DL-Optimizer measures PyTorch inference plans across real workload signatures, rejects unsafe candidates, and returns the fastest valid callable with evidence.">
+    <meta name="theme-color" content="#09100d">
+    <meta property="og:title" content="Custom-DL-Optimizer v2.2">
+    <meta property="og:description" content="Profile the workload. Race every eligible plan. Keep the fastest valid one.">
     <meta property="og:type" content="website">
     <meta property="og:image" content="assets/og-v2.jpg">
-    <title>Custom-DL-Optimizer | Measure every inference plan</title>
+    <title>Custom-DL-Optimizer | Benchmark-driven PyTorch inference selection</title>
     <link rel="icon" type="image/jpeg" href="assets/og-v2.jpg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,10 +30,11 @@
           <i data-lucide="menu" aria-hidden="true"></i>
         </button>
         <nav class="nav-links" aria-label="Primary navigation" data-nav>
-          <a href="#why">Why</a>
-          <a href="#pipeline">How it works</a>
-          <a href="#compare">Compare</a>
-          <a href="#agents">Agents</a>
+          <a href="#demo">Demo</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#use-cases">Use cases</a>
+          <a href="#evidence">Evidence</a>
+          <a href="guides.html">Docs</a>
           <a class="nav-github" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer">
             <i data-lucide="github" aria-hidden="true"></i>
             GitHub
@@ -46,18 +47,18 @@
       <section class="hero" id="top" aria-labelledby="hero-title">
         <div class="hero-scrim" aria-hidden="true"></div>
         <div class="hero-content">
-          <p class="eyebrow"><span class="status-dot"></span> Version 2.2 research release</p>
+          <p class="eyebrow"><span class="status-dot"></span> Open-source ML systems research</p>
           <h1 id="hero-title">Custom-DL-Optimizer</h1>
-          <p class="hero-kicker">Measure the workload. Keep the best valid plan.</p>
-          <p class="hero-lede">A constraint-aware PyTorch inference selector for weighted serving signatures, persistent decisions, built-in compiler paths, and optional production runtimes.</p>
+          <p class="hero-kicker">A benchmark-driven safety layer for PyTorch inference.</p>
+          <p class="hero-lede">Give it your model and representative traffic. It races built-in compiler paths and optional runtimes, rejects candidates that are wrong or impractical, and returns the fastest valid callable with the evidence attached.</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#quickstart">
+            <a class="button button-primary" href="#demo">
               <i data-lucide="play" aria-hidden="true"></i>
-              Run the quick start
+              See it choose a plan
             </a>
-            <a class="button button-secondary" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer">
-              <i data-lucide="github" aria-hidden="true"></i>
-              View source
+            <a class="button button-secondary" href="guides.html#usage">
+              <i data-lucide="book-open" aria-hidden="true"></i>
+              Read the guide
             </a>
           </div>
           <div class="install-command" aria-label="Installation command">
@@ -66,93 +67,141 @@
               <i data-lucide="copy" aria-hidden="true"></i>
             </button>
           </div>
-        </div>
-        <div class="hero-foot" aria-label="Version 2 capabilities">
-          <span><strong>4</strong> built-in plans</span>
-          <span><strong>3</strong> runtime integrations</span>
-          <span><strong>P99</strong> evidence</span>
-          <span><strong>4</strong> bounded agent tools</span>
-        </div>
-      </section>
-
-      <section class="problem-band" id="why">
-        <div class="section-shell problem-layout">
-          <div class="section-heading reveal">
-            <p class="eyebrow dark">The deployment problem</p>
-            <h2>A faster graph on paper can still lose in your process.</h2>
+          <div class="hero-live" aria-label="Optimization decision preview">
+            <span class="hero-live-label">LIVE DECISION</span>
+            <span class="hero-live-value" data-hero-plan>Profiling serving-mix</span>
+            <span class="hero-live-state"><i data-lucide="shield-check" aria-hidden="true"></i> Native fallback armed</span>
           </div>
-          <div class="problem-points" role="list">
-            <div class="problem-point reveal" role="listitem">
-              <i data-lucide="shapes" aria-hidden="true"></i>
-              <div><strong>Models disagree</strong><span>A pass that helps a dense CNN can regress a depthwise network.</span></div>
-            </div>
-            <div class="problem-point reveal" role="listitem">
-              <i data-lucide="hourglass" aria-hidden="true"></i>
-              <div><strong>Setup is not free</strong><span>Compilation cost matters when services are short lived or shapes change.</span></div>
-            </div>
-            <div class="problem-point reveal" role="listitem">
-              <i data-lucide="shield-alert" aria-hidden="true"></i>
-              <div><strong>Fast can be wrong</strong><span>Precision and graph changes need parity checks before deployment.</span></div>
-            </div>
-          </div>
+        </div>
+        <div class="hero-foot" aria-label="Core optimizer capabilities">
+          <span><i data-lucide="layers-3" aria-hidden="true"></i><strong>Weighted</strong> input signatures</span>
+          <span><i data-lucide="git-compare-arrows" aria-hidden="true"></i><strong>8+</strong> eligible plan types</span>
+          <span><i data-lucide="shield-check" aria-hidden="true"></i><strong>Parity</strong> before selection</span>
+          <span><i data-lucide="database-zap" aria-hidden="true"></i><strong>Validated</strong> decision cache</span>
         </div>
       </section>
 
-      <section class="section flow-section" id="pipeline">
-        <div class="section-shell">
-          <div class="section-heading reveal">
-            <p class="eyebrow dark">What the package does</p>
-            <h2>One workload profile enters. Several plans compete.</h2>
-            <p>The host supplies a real model and representative tensors. Each eligible plan is built in isolation, checked against eager FP32, timed, and retained only when it clears the configured threshold.</p>
+      <section class="demo-section" id="demo" aria-labelledby="demo-title">
+        <div class="section-shell demo-layout">
+          <div class="demo-copy reveal">
+            <p class="eyebrow dark">The complete decision in one loop</p>
+            <h2 id="demo-title">It does not optimize by assumption. It measures.</h2>
+            <p>Here a provider posts the lowest raw latency, then fails numerical parity. FX + Inductor becomes the deployable winner, and the decision is cached for guarded reuse.</p>
+            <dl class="demo-facts">
+              <div><dt>Input</dt><dd>A model plus weighted serving signatures</dd></div>
+              <div><dt>Policy</dt><dd>Correctness, startup, memory, and gain thresholds</dd></div>
+              <div><dt>Output</dt><dd>A callable module plus an auditable JSON report</dd></div>
+            </dl>
           </div>
-          <figure class="flow-figure reveal">
-            <img src="assets/compiler-flow-v2.webp" alt="A neural network graph branches into four profiled and rewritten candidates. Three candidates fail validation or selection, while one path reaches GPU execution." width="1672" height="941">
+          <figure class="demo-figure reveal">
+            <div class="demo-window">
+              <picture>
+                <source media="(prefers-reduced-motion: reduce)" srcset="assets/optimizer-demo-v3-poster.webp" type="image/webp">
+                <img src="assets/optimizer-demo-v3.gif" alt="Animated Custom-DL-Optimizer run showing weighted workload profiling, candidate construction, latency measurement, parity rejection, valid-plan selection, and cache persistence." width="960" height="540" loading="eager">
+              </picture>
+            </div>
             <figcaption>
-              <span><strong>01</strong> Profile</span>
-              <span><strong>02</strong> Rewrite or compile</span>
-              <span><strong>03</strong> Validate parity</span>
-              <span><strong>04</strong> Select with fallback</span>
+              <span class="demo-stage is-active" data-demo-stage>01 Profile</span>
+              <span class="demo-stage" data-demo-stage>02 Build</span>
+              <span class="demo-stage" data-demo-stage>03 Measure</span>
+              <span class="demo-stage" data-demo-stage>04 Validate</span>
+              <span class="demo-stage" data-demo-stage>05 Select</span>
+              <span class="demo-stage" data-demo-stage>06 Cache</span>
             </figcaption>
           </figure>
         </div>
       </section>
 
-      <section class="decision-section" aria-labelledby="decision-title">
-        <div class="section-shell decision-layout">
-          <div class="decision-copy reveal">
-            <p class="eyebrow light">Live selection trace</p>
-            <h2 id="decision-title">The raw winner is not always the deployable winner.</h2>
-            <p>In this illustrative trace, an external backend is fastest but fails parity. The valid compiler plan wins; native remains available as the exit path.</p>
-            <div class="decision-status" aria-live="polite">
-              <span class="pulse-dot"></span>
-              <span data-decision-status>Preparing candidates</span>
+      <section class="value-band" aria-label="Why plan selection matters">
+        <div class="section-shell value-grid">
+          <article class="value-item reveal">
+            <i data-lucide="shapes" aria-hidden="true"></i>
+            <span class="value-number">01</span>
+            <h2>Different models want different backends.</h2>
+            <p>A fixed optimization path can help a dense CNN and regress a depthwise network. Selection stays model-specific.</p>
+          </article>
+          <article class="value-item reveal">
+            <i data-lucide="hourglass" aria-hidden="true"></i>
+            <span class="value-number">02</span>
+            <h2>Cold start changes the winner.</h2>
+            <p>Compilation and lazy first calls are included when the deployment has a finite request horizon.</p>
+          </article>
+          <article class="value-item reveal">
+            <i data-lucide="shield-alert" aria-hidden="true"></i>
+            <span class="value-number">03</span>
+            <h2>The fastest output can still be wrong.</h2>
+            <p>Every candidate must preserve output structure and clear configured numerical tolerances before it can win.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section workflow-section" id="workflow">
+        <div class="section-shell">
+          <div class="section-heading reveal">
+            <p class="eyebrow dark">Inside the optimizer</p>
+            <h2>One policy across PyTorch, compiler, runtime, and quantized plans.</h2>
+            <p>Backends keep doing what they do best. Custom-DL-Optimizer owns the comparison boundary: representative traffic, isolation, correctness, lifecycle cost, constraints, and fallback.</p>
+          </div>
+          <ol class="workflow-grid">
+            <li class="workflow-step reveal"><span>01</span><i data-lucide="layers-3" aria-hidden="true"></i><h3>Profile traffic</h3><p>Normalize real batches, shapes, dtypes, keyword forms, and weights.</p></li>
+            <li class="workflow-step reveal"><span>02</span><i data-lucide="workflow" aria-hidden="true"></i><h3>Build candidates</h3><p>Clone the module and construct eligible built-in and provider plans.</p></li>
+            <li class="workflow-step reveal"><span>03</span><i data-lucide="gauge" aria-hidden="true"></i><h3>Measure cost</h3><p>Record setup, first calls, serial distributions, memory, and break-even.</p></li>
+            <li class="workflow-step reveal"><span>04</span><i data-lucide="badge-check" aria-hidden="true"></i><h3>Gate validity</h3><p>Reject parity failures, runtime errors, and policy violations.</p></li>
+            <li class="workflow-step reveal"><span>05</span><i data-lucide="database-zap" aria-hidden="true"></i><h3>Select and cache</h3><p>Return the best valid callable and revalidate it on later launches.</p></li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="use-section" id="use-cases" aria-labelledby="use-title">
+        <div class="section-shell">
+          <div class="use-heading reveal">
+            <div>
+              <p class="eyebrow light">Useful beyond a benchmark chart</p>
+              <h2 id="use-title">Choose the workflow that matches the job.</h2>
+            </div>
+            <div class="use-tabs" role="tablist" aria-label="Use cases">
+              <button type="button" role="tab" aria-selected="true" aria-controls="use-deploy" id="tab-deploy" data-use-tab="deploy"><i data-lucide="server-cog" aria-hidden="true"></i> Deployment</button>
+              <button type="button" role="tab" aria-selected="false" aria-controls="use-research" id="tab-research" data-use-tab="research"><i data-lucide="flask-conical" aria-hidden="true"></i> Research</button>
+              <button type="button" role="tab" aria-selected="false" aria-controls="use-agent" id="tab-agent" data-use-tab="agent"><i data-lucide="bot" aria-hidden="true"></i> Agents</button>
             </div>
           </div>
-          <div class="candidate-race reveal" data-candidate-race aria-label="Animated candidate selection example">
-            <div class="race-header"><span>Candidate</span><span>Median latency</span><span>Decision</span></div>
-            <div class="candidate-row" data-candidate="eager">
-              <span class="candidate-name">Eager FP32</span>
-              <span class="latency-track"><span class="latency-bar bar-eager"></span></span>
-              <span class="candidate-result">100.0 ms</span>
+
+          <div class="use-panel is-active" id="use-deploy" role="tabpanel" aria-labelledby="tab-deploy" data-use-panel="deploy">
+            <div class="use-copy">
+              <p class="use-index">DEPLOY / 01</p>
+              <h3>Pick a plan for the traffic you actually serve.</h3>
+              <p>Model batch-size and shape frequency, cap setup and memory, then select by steady-state or projected lifecycle cost. A validated cache avoids repeating the full race on every process start.</p>
+              <a class="text-link light" href="guides.html#usage">Open deployment guide <i data-lucide="arrow-right" aria-hidden="true"></i></a>
             </div>
-            <div class="candidate-row" data-candidate="native">
-              <span class="candidate-name">Native AMP</span>
-              <span class="latency-track"><span class="latency-bar bar-native"></span></span>
-              <span class="candidate-result">43.0 ms</span>
+            <div class="use-output" aria-label="Deployment decision example">
+              <p>SELECTED PLAN</p><strong>fx_inductor</strong>
+              <dl><div><dt>Projected gain</dt><dd>1.18x</dd></div><div><dt>Parity</dt><dd class="pass">passed</dd></div><div><dt>Break-even</dt><dd>214 calls</dd></div><div><dt>Fallback</dt><dd>native</dd></div></dl>
             </div>
-            <div class="candidate-row" data-candidate="compiler">
-              <span class="candidate-name">FX + Inductor</span>
-              <span class="latency-track"><span class="latency-bar bar-compiler"></span></span>
-              <span class="candidate-result">39.8 ms</span>
+          </div>
+
+          <div class="use-panel" id="use-research" role="tabpanel" aria-labelledby="tab-research" data-use-panel="research" hidden>
+            <div class="use-copy">
+              <p class="use-index">RESEARCH / 02</p>
+              <h3>Turn every result into reproducible evidence.</h3>
+              <p>Keep raw serial samples, per-case parity, confidence bounds, failures, cache state, and environment metadata. Export candidate and workload CSVs, LaTeX tables, manifests, and P50/P99 figures.</p>
+              <a class="text-link light" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/paper-launch.md">Read paper protocol <i data-lucide="arrow-up-right" aria-hidden="true"></i></a>
             </div>
-            <div class="candidate-row" data-candidate="external">
-              <span class="candidate-name">External provider</span>
-              <span class="latency-track"><span class="latency-bar bar-external"></span></span>
-              <span class="candidate-result">35.4 ms</span>
+            <div class="use-output research-output" aria-label="Research export example">
+              <p>PAPER EXPORT</p><strong>6 artifacts written</strong>
+              <ul><li>paper_candidates.csv</li><li>paper_workload_cases.csv</li><li>paper_results.tex</li><li>paper_p99_latency.png</li></ul>
             </div>
-            <div class="race-verdict" data-race-verdict>
-              <i data-lucide="circle-check" aria-hidden="true"></i>
-              <span>FX + Inductor selected: 2.51x vs eager, parity passed</span>
+          </div>
+
+          <div class="use-panel" id="use-agent" role="tabpanel" aria-labelledby="tab-agent" data-use-panel="agent" hidden>
+            <div class="use-copy">
+              <p class="use-index">AGENTS / 03</p>
+              <h3>Let an agent optimize approved workloads, not arbitrary code.</h3>
+              <p>The host registers modules and tensors in process. Remote tools expose only workload names, runtime inspection, measured optimization, and JSON reports; weights, paths, shell commands, and Python expressions remain out of scope.</p>
+              <a class="text-link light" href="guides.html#agents">Open agent guide <i data-lucide="arrow-right" aria-hidden="true"></i></a>
+            </div>
+            <div class="use-output agent-output" aria-label="Bounded agent operations">
+              <p>BOUNDED TOOLKIT</p>
+              <ul><li><i data-lucide="scan-search" aria-hidden="true"></i> inspect_runtime <b>read only</b></li><li><i data-lucide="list-tree" aria-hidden="true"></i> list_workloads <b>registered</b></li><li><i data-lucide="zap" aria-hidden="true"></i> optimize <b>measured</b></li><li><i data-lucide="file-json" aria-hidden="true"></i> get_report <b>JSON</b></li></ul>
             </div>
           </div>
         </div>
@@ -161,15 +210,16 @@
       <section class="section quickstart-section" id="quickstart">
         <div class="section-shell code-layout">
           <div class="code-copy reveal">
-            <p class="eyebrow dark">Version 2 API</p>
-            <h2>A callable result with the evidence attached.</h2>
-            <p>The selected module and its report travel together. Save the evidence beside your deployment artifact, then inspect exactly why the plan won.</p>
-            <div class="inline-links">
-              <a href="guides.html#usage">Usage guide <i data-lucide="arrow-up-right" aria-hidden="true"></i></a>
-              <a href="guides.html#migration">Migrate from v1 <i data-lucide="arrow-up-right" aria-hidden="true"></i></a>
+            <p class="eyebrow dark">Small API, explicit policy</p>
+            <h2>Start with one signature. Grow into the full traffic mix.</h2>
+            <p>The simple call still works. The result remains callable and carries the complete selection report.</p>
+            <div class="code-points">
+              <span><i data-lucide="check" aria-hidden="true"></i> No model-code rewrite</span>
+              <span><i data-lucide="check" aria-hidden="true"></i> Native fallback retained</span>
+              <span><i data-lucide="check" aria-hidden="true"></i> Provider failures isolated</span>
             </div>
           </div>
-          <div class="code-window reveal" aria-label="Python version 2 quick start">
+          <div class="code-window reveal" aria-label="Python quick start">
             <div class="code-toolbar">
               <span>optimize.py</span>
               <button class="icon-button" type="button" data-copy-target="quickstart-code" aria-label="Copy quick start" title="Copy code">
@@ -185,84 +235,44 @@ optimizer = Optimizer(
     device="cuda",
     config=OptimizationConfig(
         enable_compile=True,
+        plan_cache_dir=".custom-dl-cache",
         min_speedup=1.02,
     ),
 )
 
-result = optimizer.optimize(model, sample)
+result = optimizer.optimize(model.eval(), sample)
 output = result(sample)
 
 print(result.selected_plan)
-result.save_report("optimization.json")</code></pre>
+result.save_bundle("artifacts/run")</code></pre>
           </div>
         </div>
       </section>
 
-      <section class="section compare-section" id="compare">
-        <div class="section-shell">
-          <div class="section-heading reveal">
-            <p class="eyebrow dark">Bring your strongest baseline</p>
-            <h2>Compare built-ins, vendor compilers, and research backends under one policy.</h2>
-            <p>Every plan is evaluated across weighted signatures. Custom-DL handles isolation, cold start, parity, P50-P99 measurement, resource constraints, amortization, cache validation, and fallback.</p>
+      <section class="provider-section" id="providers">
+        <div class="section-shell provider-layout">
+          <div class="provider-copy reveal">
+            <p class="eyebrow light">Bring the strongest alternatives</p>
+            <h2>Compare maintained runtimes under the same policy.</h2>
+            <p>Custom-DL-Optimizer complements backend compilers. It gives their outputs a shared correctness, measurement, constraint, and selection boundary.</p>
+            <a class="text-link light" href="guides.html#providers">Read provider contract <i data-lucide="arrow-right" aria-hidden="true"></i></a>
           </div>
-          <div class="provider-grid reveal">
-            <div class="provider-column">
-              <span class="provider-label">Built in</span>
-              <ul class="provider-list">
-                <li>Eager FP32</li>
-                <li>Native AMP/layout</li>
-                <li>FX rewrites</li>
-                <li>FX + Inductor</li>
-              </ul>
-            </div>
-            <div class="provider-connector" aria-hidden="true"><i data-lucide="arrow-right-left"></i></div>
-            <div class="provider-column external">
-              <span class="provider-label">Provider API</span>
-              <ul class="provider-list">
-                <li>Torch-TensorRT</li>
-                <li>ONNX Runtime</li>
-                <li>TorchAO quantization</li>
-                <li>Private provider</li>
-              </ul>
-            </div>
-            <div class="provider-output">
-              <i data-lucide="file-json" aria-hidden="true"></i>
-              <div>
-                <strong>One comparable report</strong>
-                <span>Per-case parity, P50-P99, constraints, cold start, cache state, break-even</span>
-              </div>
-            </div>
-          </div>
-          <a class="button button-outline reveal" href="guides.html#providers">
-            Read the provider contract
-            <i data-lucide="arrow-right" aria-hidden="true"></i>
-          </a>
-        </div>
-      </section>
-
-      <section class="agent-section" id="agents">
-        <div class="section-shell agent-layout">
-          <div class="agent-copy reveal">
-            <p class="eyebrow light">Agent-safe by construction</p>
-            <h2>Let an agent optimize approved workloads, not arbitrary code.</h2>
-            <p>The host registers live modules and tensors in process. The agent sees only names and four bounded operations; no weights, paths, shell commands, downloads, or Python expressions cross the tool boundary.</p>
-            <a class="text-link" href="guides.html#agents">Open the agent guide <i data-lucide="arrow-right" aria-hidden="true"></i></a>
-          </div>
-          <div class="agent-console reveal" aria-label="Agent toolkit example">
-            <div class="agent-tool"><i data-lucide="scan-search" aria-hidden="true"></i><span>inspect_runtime</span><b>read only</b></div>
-            <div class="agent-tool"><i data-lucide="list-tree" aria-hidden="true"></i><span>list_workloads</span><b>registered only</b></div>
-            <div class="agent-tool active"><i data-lucide="zap" aria-hidden="true"></i><span>optimize</span><b>measured</b></div>
-            <div class="agent-tool"><i data-lucide="file-chart-column" aria-hidden="true"></i><span>get_report</span><b>JSON</b></div>
+          <div class="provider-matrix reveal" aria-label="Supported plan families">
+            <div><span>BUILT IN</span><strong>PyTorch eager</strong><strong>AMP / layout</strong><strong>FX rewrites</strong><strong>FX + Inductor</strong></div>
+            <div><span>OPTIONAL PROVIDERS</span><strong>Torch-TensorRT</strong><strong>ONNX Runtime</strong><strong>TorchAO</strong><strong>Private backend</strong></div>
+            <p><i data-lucide="file-chart-column" aria-hidden="true"></i><span><b>One comparable report</b>Per-case latency, parity, first call, constraints, cache state, and failures</span></p>
           </div>
         </div>
       </section>
 
       <section class="section evidence-section" id="evidence">
         <div class="section-shell">
-          <div class="section-heading reveal">
-            <p class="eyebrow dark">Honest evidence</p>
-            <h2>A regression is a result, not an inconvenience.</h2>
-            <p>The historical T4 study shows why selection needs a native fallback. Most gains came from established precision, layout, and compiler techniques; the fixed custom path lost on MobileNet-V2.</p>
+          <div class="evidence-heading reveal">
+            <div class="section-heading">
+              <p class="eyebrow dark">Evidence, including regressions</p>
+              <h2>The system is useful because no backend wins everywhere.</h2>
+            </div>
+            <p>The historical T4 study below motivated adaptive selection. Most eager gains came from established precision, layout, and compiler techniques, while the fixed custom path regressed on MobileNet-V2.</p>
           </div>
           <div class="table-wrap reveal" tabindex="0" role="region" aria-label="Historical NVIDIA T4 benchmark table">
             <table>
@@ -276,33 +286,35 @@ result.save_report("optimization.json")</code></pre>
               </tbody>
             </table>
           </div>
-          <p class="evidence-note reveal"><i data-lucide="info" aria-hidden="true"></i><span>Historical hardware snapshot, not a v2 benchmark and not a state-of-the-art claim. Rerun the notebook before citing results.</span></p>
+          <div class="evidence-footer reveal">
+            <p><i data-lucide="info" aria-hidden="true"></i><span>Historical hardware snapshot, not a v2.2 benchmark and not a state-of-the-art claim. Reproduce every baseline before citing results.</span></p>
+            <a href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/Custom_DL_Optimizer_Research_Colab.ipynb">Open research notebook <i data-lucide="arrow-up-right" aria-hidden="true"></i></a>
+          </div>
         </div>
       </section>
 
-      <section class="section resources-section" id="docs">
-        <div class="section-shell">
-          <div class="section-heading reveal">
-            <p class="eyebrow dark">Start with the contract</p>
-            <h2>Documentation that resolves on this site.</h2>
+      <section class="resources-section" id="docs">
+        <div class="section-shell resources-layout">
+          <div class="resources-copy reveal">
+            <p class="eyebrow dark">From first call to paper artifact</p>
+            <h2>Everything needed to inspect, extend, and reproduce the decision.</h2>
           </div>
-          <div class="resource-list">
-            <a class="resource-row reveal" href="guides.html#usage"><i data-lucide="book-open" aria-hidden="true"></i><span><strong>Usage</strong><small>Results, reports, multi-input models, and correctness</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
-            <a class="resource-row reveal" href="guides.html#providers"><i data-lucide="plug" aria-hidden="true"></i><span><strong>Providers</strong><small>Torch-TensorRT, ONNX Runtime, TorchAO, and private compilers</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
+          <nav class="resource-list" aria-label="Project resources">
+            <a class="resource-row reveal" href="guides.html#usage"><i data-lucide="book-open" aria-hidden="true"></i><span><strong>Usage</strong><small>Weighted workloads, cache, constraints, and reports</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
+            <a class="resource-row reveal" href="guides.html#providers"><i data-lucide="plug" aria-hidden="true"></i><span><strong>Providers</strong><small>Torch-TensorRT, ONNX Runtime, TorchAO, and private backends</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
             <a class="resource-row reveal" href="guides.html#agents"><i data-lucide="bot" aria-hidden="true"></i><span><strong>Agent toolkit</strong><small>Registered workloads and bounded JSON tools</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
-            <a class="resource-row reveal" href="guides.html#migration"><i data-lucide="git-compare-arrows" aria-hidden="true"></i><span><strong>Version 2 migration</strong><small>Move from AutoOptimizer tuples to OptimizationResult</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
             <a class="resource-row reveal" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/paper-launch.md"><i data-lucide="file-chart-column" aria-hidden="true"></i><span><strong>Paper protocol</strong><small>Baselines, ablations, statistics, claims, and release artifacts</small></span><i data-lucide="arrow-up-right" aria-hidden="true"></i></a>
-          </div>
+          </nav>
         </div>
       </section>
 
       <section class="cta-band">
         <div class="section-shell cta-inner">
-          <div><p class="eyebrow light">Custom-DL-Optimizer v2</p><h2>Do not guess which backend wins. Measure it.</h2></div>
-          <a class="button button-primary" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer">
-            <i data-lucide="github" aria-hidden="true"></i>
-            Explore the repository
-          </a>
+          <div><p class="eyebrow light">Custom-DL-Optimizer v2.2</p><h2>Do not guess which backend wins. Measure it.</h2></div>
+          <div class="cta-actions">
+            <a class="button button-primary" href="guides.html#usage"><i data-lucide="rocket" aria-hidden="true"></i> Get started</a>
+            <a class="button button-secondary" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer"><i data-lucide="github" aria-hidden="true"></i> View repository</a>
+          </div>
         </div>
       </section>
     </main>
