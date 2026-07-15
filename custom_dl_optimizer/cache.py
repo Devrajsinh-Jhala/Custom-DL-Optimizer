@@ -5,7 +5,7 @@ import io
 import json
 import shutil
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -208,7 +208,7 @@ class PlanCache:
             selected_plan=selected_plan,
             latency_ms=latency_ms,
             report=report,
-            created_at=datetime.now(UTC).isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             package_version=_package_version(),
         )
         temporary = destination.with_suffix(".json.tmp")
