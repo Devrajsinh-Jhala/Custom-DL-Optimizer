@@ -1,6 +1,7 @@
 const header = document.querySelector("[data-header]");
 const nav = document.querySelector("[data-nav]");
 const navToggle = document.querySelector("[data-nav-toggle]");
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const setHeaderState = () => {
   header?.classList.toggle("is-scrolled", window.scrollY > 24);
@@ -23,14 +24,14 @@ nav?.querySelectorAll("a").forEach((link) => {
   });
 });
 
-const writeClipboard = async (text) => {
+const writeClipboard = async (value) => {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(value);
     return;
   }
 
   const textarea = document.createElement("textarea");
-  textarea.value = text;
+  textarea.value = value;
   textarea.setAttribute("readonly", "");
   textarea.style.position = "fixed";
   textarea.style.opacity = "0";
@@ -41,10 +42,10 @@ const writeClipboard = async (text) => {
   if (!copied) throw new Error("Clipboard copy was rejected");
 };
 
-const copyText = async (text, button) => {
+const copyText = async (value, button) => {
   const defaultLabel = button.getAttribute("aria-label") ?? "Copy";
   try {
-    await writeClipboard(text);
+    await writeClipboard(value);
     button.setAttribute("aria-label", "Copied");
     button.innerHTML = '<i data-lucide="check" aria-hidden="true"></i>';
     window.lucide?.createIcons();
@@ -70,7 +71,7 @@ document.querySelectorAll("[data-copy-target]").forEach((button) => {
 });
 
 const revealElements = document.querySelectorAll(".reveal");
-if ("IntersectionObserver" in window) {
+if ("IntersectionObserver" in window && !reducedMotion) {
   const observer = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
@@ -87,47 +88,64 @@ if ("IntersectionObserver" in window) {
   revealElements.forEach((element) => element.classList.add("is-visible"));
 }
 
-const race = document.querySelector("[data-candidate-race]");
-const raceStatus = document.querySelector("[data-decision-status]");
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-let raceTimers = [];
+const demoStages = Array.from(document.querySelectorAll("[data-demo-stage]"));
+const heroPlan = document.querySelector("[data-hero-plan]");
+const heroMessages = [
+  "Profiling serving-mix",
+  "Building eligible plans",
+  "Measuring serial latency",
+  "Rejecting parity failure",
+  "Selecting FX + Inductor",
+  "Caching guarded decision",
+];
+let demoStageIndex = reducedMotion ? heroMessages.length - 1 : 0;
 
-const clearRaceTimers = () => {
-  raceTimers.forEach((timer) => window.clearTimeout(timer));
-  raceTimers = [];
+const renderDemoStage = () => {
+  demoStages.forEach((stage, index) => {
+    stage.classList.toggle("is-active", index === demoStageIndex);
+  });
+  if (heroPlan) heroPlan.textContent = heroMessages[demoStageIndex];
 };
 
-const setRacePhase = (phase, status) => {
-  if (!race) return;
-  race.classList.toggle("is-measuring", phase !== "reset");
-  race.classList.toggle("is-decided", phase === "decided");
-  race.querySelector('[data-candidate="external"]')?.classList.toggle(
-    "is-rejected",
-    phase === "validating" || phase === "decided",
-  );
-  race.querySelector('[data-candidate="compiler"]')?.classList.toggle(
-    "is-selected",
-    phase === "decided",
-  );
-  if (raceStatus) raceStatus.textContent = status;
-};
-
-const runRace = () => {
-  clearRaceTimers();
-  setRacePhase("reset", "Preparing candidates");
-  raceTimers.push(window.setTimeout(() => setRacePhase("measuring", "Measuring steady-state latency"), 350));
-  raceTimers.push(window.setTimeout(() => setRacePhase("validating", "External provider rejected: parity failed"), 2100));
-  raceTimers.push(window.setTimeout(() => setRacePhase("decided", "FX + Inductor selected with native fallback ready"), 3500));
-  raceTimers.push(window.setTimeout(runRace, 7200));
-};
-
-if (race) {
-  if (reducedMotion) {
-    setRacePhase("decided", "FX + Inductor selected with native fallback ready");
-  } else {
-    runRace();
-  }
+renderDemoStage();
+if (!reducedMotion && demoStages.length) {
+  window.setInterval(() => {
+    demoStageIndex = (demoStageIndex + 1) % heroMessages.length;
+    renderDemoStage();
+  }, 1000);
 }
+
+const useTabs = Array.from(document.querySelectorAll("[data-use-tab]"));
+const usePanels = Array.from(document.querySelectorAll("[data-use-panel]"));
+
+const activateUseCase = (name, { focus = false } = {}) => {
+  useTabs.forEach((tab) => {
+    const selected = tab.dataset.useTab === name;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  });
+  usePanels.forEach((panel) => {
+    const selected = panel.dataset.usePanel === name;
+    panel.hidden = !selected;
+    panel.classList.toggle("is-active", selected);
+  });
+};
+
+useTabs.forEach((tab, index) => {
+  tab.tabIndex = tab.getAttribute("aria-selected") === "true" ? 0 : -1;
+  tab.addEventListener("click", () => activateUseCase(tab.dataset.useTab));
+  tab.addEventListener("keydown", (event) => {
+    let targetIndex = index;
+    if (event.key === "ArrowRight") targetIndex = (index + 1) % useTabs.length;
+    else if (event.key === "ArrowLeft") targetIndex = (index - 1 + useTabs.length) % useTabs.length;
+    else if (event.key === "Home") targetIndex = 0;
+    else if (event.key === "End") targetIndex = useTabs.length - 1;
+    else return;
+    event.preventDefault();
+    activateUseCase(useTabs[targetIndex].dataset.useTab, { focus: true });
+  });
+});
 
 document.querySelectorAll("[data-year]").forEach((element) => {
   element.textContent = String(new Date().getFullYear());
