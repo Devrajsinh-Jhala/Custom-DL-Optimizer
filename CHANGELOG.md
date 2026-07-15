@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-15
+
+### Added
+
+- Weighted `WorkloadProfile` and `WorkloadCase` selection across multiple signatures.
+- Content-addressed persistent plan cache with parity, constraint, and latency-regression validation.
+- First-party optional Torch-TensorRT, ONNX Runtime, and TorchAO providers.
+- Setup, first-call, and incremental CUDA allocation constraints.
+- Per-case request samples, P95/P99, mean confidence bounds, and workload evidence.
+- CLI commands for runtime inspection, report summaries, cache management, and paper exports.
+- Portable decision bundles, CSV/LaTeX/figure exporters, and a paper-launch experimental protocol.
+
+### Changed
+
+- Latency samples now represent individually timed serial invocations rather than repeat averages.
+- Agent workloads can register complete weighted profiles.
+- Expected-call projection accounts for the first invocation of every workload case.
+
 ## [2.1.0] - 2026-07-14
 
 ### Added
@@ -67,7 +85,8 @@ All notable changes to this project are documented here.
 
 - Initial PyPI package with FX ReLU replacement, Triton kernel injection, channels-last layout, and AMP.
 
-[Unreleased]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v1.0.1...v1.1.0

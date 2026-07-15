@@ -20,8 +20,12 @@ class RuntimeCapabilities:
     cuda_version: str | None
     cudnn_version: str | None
     compute_capability: str | None
+    total_device_memory_mb: float | None
     torch_compile_available: bool
     triton_available: bool
+    torch_tensorrt_available: bool
+    onnxruntime_available: bool
+    torchao_available: bool
     amp_available: bool
     channels_last_available: bool
 
@@ -40,11 +44,15 @@ def inspect_runtime(
 
     device_name = platform.processor() or "CPU"
     compute_capability: str | None = None
+    total_device_memory_mb: float | None = None
     if resolved.type == "cuda":
         index = resolved.index if resolved.index is not None else torch.cuda.current_device()
         device_name = torch.cuda.get_device_name(index)
         major, minor = torch.cuda.get_device_capability(index)
         compute_capability = f"{major}.{minor}"
+        total_device_memory_mb = float(
+            torch.cuda.get_device_properties(index).total_memory / (1024.0 * 1024.0)
+        )
 
     cudnn_version = torch.backends.cudnn.version()
     return RuntimeCapabilities(
@@ -56,8 +64,14 @@ def inspect_runtime(
         cuda_version=torch.version.cuda,
         cudnn_version=str(cudnn_version) if cudnn_version is not None else None,
         compute_capability=compute_capability,
+        total_device_memory_mb=total_device_memory_mb,
         torch_compile_available=hasattr(torch, "compile"),
         triton_available=find_spec("triton") is not None and resolved.type == "cuda",
+        torch_tensorrt_available=(
+            find_spec("torch_tensorrt") is not None and resolved.type == "cuda"
+        ),
+        onnxruntime_available=find_spec("onnxruntime") is not None,
+        torchao_available=find_spec("torchao") is not None,
         amp_available=resolved.type == "cuda",
         channels_last_available=resolved.type == "cuda",
     )

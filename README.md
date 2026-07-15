@@ -5,9 +5,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/custom-dl-optimizer.svg)](https://pypi.org/project/custom-dl-optimizer/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-137a55.svg)](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/LICENSE)
 
-Custom-DL-Optimizer is an auditable PyTorch inference plan selector. Give it a model and representative inputs; it profiles eligible execution plans, validates every candidate against eager FP32, and returns the fastest plan that clears your configured gain threshold.
+Custom-DL-Optimizer is an auditable, workload-aware PyTorch inference plan selector. Give it a model and representative serving inputs; it profiles eligible execution plans, validates every candidate against eager FP32, applies deployment constraints, and returns the plan with the best measured lifecycle cost.
 
-[Project site](https://devrajsinh-jhala.github.io/Custom-DL-Optimizer/) | [Usage](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/usage.md) | [Provider API](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md) | [Agent toolkit](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/agents.md) | [Research notebook](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/Custom_DL_Optimizer_Research_Colab.ipynb)
+[Project site](https://devrajsinh-jhala.github.io/Custom-DL-Optimizer/) | [Usage](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/usage.md) | [Provider API](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md) | [Research protocol](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/paper-launch.md) | [Research notebook](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/Custom_DL_Optimizer_Research_Colab.ipynb)
 
 > Status: research alpha. Use it for controlled inference experiments and deployment feasibility checks. It complements rather than replaces TorchInductor, Torch-TensorRT, TensorRT, ONNX Runtime, TVM, or vendor profilers.
 
@@ -20,9 +20,13 @@ Custom-DL-Optimizer makes those tradeoffs explicit:
 - measures eager FP32, native AMP/layout, FX, and optional compiler candidates;
 - supports external candidate providers for TensorRT, ONNX Runtime wrappers, private compilers, or research passes;
 - rejects candidates that fail output structure or tolerance checks;
+- validates every candidate across weighted input shapes, batches, and keyword signatures;
 - records construction and lazy first-call time separately from steady-state latency;
-- reports repeat samples, median, repeat-sample P90, standard deviation, and break-even calls;
+- reports request samples, median, P90/P95/P99, mean confidence intervals, incremental peak CUDA memory, and break-even calls;
 - optionally selects by projected total cost for an expected request volume;
+- rejects plans that exceed configured setup, first-call, or memory limits;
+- persists content-addressed decisions and revalidates cached winners before reuse;
+- includes optional Torch-TensorRT, ONNX Runtime, and TorchAO providers;
 - reports speedup against eager FP32 and the native optimized path;
 - falls back when custom work does not clear `min_speedup`;
 - exports runtime provenance and results as JSON;
@@ -38,6 +42,13 @@ Vision examples require:
 
 ```bash
 pip install "custom-dl-optimizer[vision]"
+```
+
+Optional integration dependencies are deliberately separate:
+
+```bash
+pip install "custom-dl-optimizer[onnxruntime-gpu]"
+pip install "custom-dl-optimizer[quantization]"
 ```
 
 Triton and third-party compiler packages are runtime-detected. They are not force-installed because their versions must match the installed PyTorch/CUDA stack.
@@ -76,6 +87,27 @@ result.save_report("artifacts/resnet50-optimization.json")
 
 `OptimizationResult` owns both the callable selected module and the evidence used to select it. The selected wrapper prepares nested positional and keyword tensors for the target device and memory layout.
 
+## Workload-Aware Selection
+
+Use a weighted profile when production traffic contains multiple signatures:
+
+```python
+from custom_dl_optimizer import WorkloadCase, WorkloadProfile
+
+profile = WorkloadProfile(
+    name="image-serving",
+    expected_calls=100_000,
+    cases=(
+        WorkloadCase("batch-1", args=(batch_1,), weight=70),
+        WorkloadCase("batch-8", args=(batch_8,), weight=25),
+        WorkloadCase("batch-32", args=(batch_32,), weight=5),
+    ),
+)
+result = optimizer.optimize_workload(model, profile)
+```
+
+Each candidate must pass parity for every case. Selection uses the normalized traffic weights, so a backend cannot win by optimizing an unrepresentative shape.
+
 ## Candidate Evidence
 
 ```python
@@ -84,6 +116,10 @@ for candidate in result.report.candidates:
         candidate.name,
         candidate.latency_ms,
         candidate.latency_p90_ms,
+        candidate.latency_p99_ms,
+        candidate.latency_ci95_low_ms,
+        candidate.latency_ci95_high_ms,
+        candidate.peak_memory_mb,
         candidate.first_call_time_s,
         candidate.projected_total_ms,
         candidate.break_even_calls_vs_baseline,
@@ -105,6 +141,16 @@ Built-in plans are:
 
 Only valid candidates participate in selection. Pilot measurements are useful for plan choice; use a full benchmark protocol for publication claims.
 
+Resource policies are optional:
+
+```python
+config = OptimizationConfig(
+    max_setup_time_s=30,
+    max_first_call_time_s=10,
+    max_peak_memory_mb=2048,
+)
+```
+
 ## Cold-Start-Aware Selection
 
 Steady-state latency is the default selection basis. For a known serving horizon, set `expected_calls` to include candidate construction, lazy compilation on first invocation, and the remaining steady-state calls:
@@ -119,44 +165,59 @@ config = OptimizationConfig(
 
 The report exposes `selection_basis="projected_total_time"`, projected total milliseconds for each valid candidate, and its break-even call count against the fastest steady-state built-in baseline. This prevents a short-lived job from choosing a compiler whose build cost cannot be recovered.
 
-## Compare Another Compiler
+## Persistent Plan Cache
 
-External backends implement the small `CandidateProvider` protocol. The package handles warmup, timing, parity, reporting, and selection:
+Enable a content-addressed cache to avoid re-running the full candidate race at every process start:
 
 ```python
-import torch
-import torch_tensorrt  # Registers the torch.compile backend.
-
-from custom_dl_optimizer import (
-    FunctionCandidateProvider,
-    OptimizationConfig,
-    Optimizer,
+config = OptimizationConfig(
+    plan_cache_dir=".custom-dl-cache",
+    reuse_cached_plan=True,
 )
+```
 
+The key includes model weights, workload signatures and weights, selection policy, provider settings, and runtime provenance. A cache hit still runs output parity, constraint checks, and a short latency-regression probe before the plan is accepted.
 
-def build_torch_tensorrt(model, context):
-    return torch.compile(
-        model,
-        backend="torch_tensorrt",
-        dynamic=context.config.dynamic_shapes,
-    )
+## Compare Other Runtimes
 
+First-party optional providers use the same policy as built-in plans:
+
+```python
+from custom_dl_optimizer import (
+    ONNXRuntimeProvider,
+    Optimizer,
+    TorchAOQuantizationProvider,
+    TorchTensorRTProvider,
+)
 
 optimizer = Optimizer(
     device="cuda",
-    config=OptimizationConfig(min_speedup=1.02),
     providers=(
-        FunctionCandidateProvider(
-            name="torch_tensorrt",
-            builder=build_torch_tensorrt,
-            availability=lambda context: context.device.type == "cuda",
+        TorchTensorRTProvider(
+            compile_options={"optimization_level": 3},
         ),
+        ONNXRuntimeProvider(),
+        TorchAOQuantizationProvider(scheme="int8_weight_only"),
     ),
 )
 result = optimizer.optimize(model, sample)
 ```
 
-See the [provider documentation](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md) for isolation, input, correctness, and dependency rules. Torch-TensorRT officially supports use as a `torch.compile` backend; ONNX Runtime uses ordered execution providers and may require a wrapper that converts between PyTorch tensors and the session API.
+Unavailable optional dependencies are reported without breaking the remaining race. Custom and private backends can still implement `CandidateProvider`. See the [provider documentation](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md).
+
+## CLI and Decision Bundles
+
+```bash
+custom-dl-optimizer inspect --device cuda
+custom-dl-optimizer report artifacts/report.json
+custom-dl-optimizer cache list --cache-dir .custom-dl-cache
+custom-dl-optimizer paper-export artifacts/run-*/report.json \
+  --output-dir artifacts/paper
+```
+
+`result.save_bundle("artifacts/run")` writes a report and portable decision manifest. Executable engine serialization remains provider-owned so the package never pretends a generic Python module is a deployable engine artifact.
+
+`paper-export` preserves raw samples in candidate-level and workload-case CSV files, writes a LaTeX results table and provenance manifest, and produces median/P99 figures when the `research` extra is installed. These are reporting artifacts, not a substitute for the controlled protocol in [paper-launch.md](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/paper-launch.md).
 
 ## Agent Toolkit
 
@@ -225,12 +286,12 @@ Read [CONTRIBUTING.md](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/b
 
 ## Limitations
 
-- Selection is specific to the supplied shapes, dtypes, device, and software versions.
+- Selection is specific to the supplied workload distribution, device, and software versions.
 - FX symbolic tracing cannot represent every data-dependent Python program.
 - Provider setup may require third-party dependencies and substantial compilation time.
 - Tensor parity is not a substitute for dataset-level quality evaluation.
 - The current package targets inference; it does not optimize training or backward graphs.
-- GPU energy, peak memory, and multi-stream throughput require separate measurement.
+- `peak_memory_mb` is incremental allocated CUDA memory during a warmed serial invocation; total process VRAM, energy, and concurrent-service tails require separate measurement.
 
 ## Citation and License
 

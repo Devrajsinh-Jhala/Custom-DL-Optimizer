@@ -10,6 +10,7 @@
     <meta property="og:type" content="website">
     <meta property="og:image" content="assets/og-v2.jpg">
     <title>Custom-DL-Optimizer | Measure every inference plan</title>
+    <link rel="icon" type="image/jpeg" href="assets/og-v2.jpg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
@@ -45,10 +46,10 @@
       <section class="hero" id="top" aria-labelledby="hero-title">
         <div class="hero-scrim" aria-hidden="true"></div>
         <div class="hero-content">
-          <p class="eyebrow"><span class="status-dot"></span> Version 2 release candidate</p>
+          <p class="eyebrow"><span class="status-dot"></span> Version 2.2 research release</p>
           <h1 id="hero-title">Custom-DL-Optimizer</h1>
-          <p class="hero-kicker">Measure every plan. Keep the fastest valid one.</p>
-          <p class="hero-lede">An auditable PyTorch inference plan selector for built-in FX and Inductor paths, external compiler providers, and agent-driven optimization workflows.</p>
+          <p class="hero-kicker">Measure the workload. Keep the best valid plan.</p>
+          <p class="hero-lede">A constraint-aware PyTorch inference selector for weighted serving signatures, persistent decisions, built-in compiler paths, and optional production runtimes.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="#quickstart">
               <i data-lucide="play" aria-hidden="true"></i>
@@ -68,8 +69,8 @@
         </div>
         <div class="hero-foot" aria-label="Version 2 capabilities">
           <span><strong>4</strong> built-in plans</span>
-          <span><strong>1</strong> provider protocol</span>
-          <span><strong>JSON</strong> evidence</span>
+          <span><strong>3</strong> runtime integrations</span>
+          <span><strong>P99</strong> evidence</span>
           <span><strong>4</strong> bounded agent tools</span>
         </div>
       </section>
@@ -101,7 +102,7 @@
         <div class="section-shell">
           <div class="section-heading reveal">
             <p class="eyebrow dark">What the package does</p>
-            <h2>One workload enters. Several plans compete.</h2>
+            <h2>One workload profile enters. Several plans compete.</h2>
             <p>The host supplies a real model and representative tensors. Each eligible plan is built in isolation, checked against eager FP32, timed, and retained only when it clears the configured threshold.</p>
           </div>
           <figure class="flow-figure reveal">
@@ -202,7 +203,7 @@ result.save_report("optimization.json")</code></pre>
           <div class="section-heading reveal">
             <p class="eyebrow dark">Bring your strongest baseline</p>
             <h2>Compare built-ins, vendor compilers, and research backends under one policy.</h2>
-            <p>Providers return a callable module. Custom-DL handles isolation, build and first-call timing, parity, median/P90 measurement, expected-call amortization, and fallback.</p>
+            <p>Every plan is evaluated across weighted signatures. Custom-DL handles isolation, cold start, parity, P50-P99 measurement, resource constraints, amortization, cache validation, and fallback.</p>
           </div>
           <div class="provider-grid reveal">
             <div class="provider-column">
@@ -219,16 +220,16 @@ result.save_report("optimization.json")</code></pre>
               <span class="provider-label">Provider API</span>
               <ul class="provider-list">
                 <li>Torch-TensorRT</li>
-                <li>ONNX Runtime wrapper</li>
-                <li>Private compiler</li>
-                <li>Experimental pass</li>
+                <li>ONNX Runtime</li>
+                <li>TorchAO quantization</li>
+                <li>Private provider</li>
               </ul>
             </div>
             <div class="provider-output">
               <i data-lucide="file-json" aria-hidden="true"></i>
               <div>
                 <strong>One comparable report</strong>
-                <span>Cold start, median/P90, break-even, parity, speedups, environment</span>
+                <span>Per-case parity, P50-P99, constraints, cold start, cache state, break-even</span>
               </div>
             </div>
           </div>
@@ -287,9 +288,10 @@ result.save_report("optimization.json")</code></pre>
           </div>
           <div class="resource-list">
             <a class="resource-row reveal" href="guides.html#usage"><i data-lucide="book-open" aria-hidden="true"></i><span><strong>Usage</strong><small>Results, reports, multi-input models, and correctness</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
-            <a class="resource-row reveal" href="guides.html#providers"><i data-lucide="plug" aria-hidden="true"></i><span><strong>Providers</strong><small>Compare TensorRT, ONNX Runtime wrappers, or private compilers</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
+            <a class="resource-row reveal" href="guides.html#providers"><i data-lucide="plug" aria-hidden="true"></i><span><strong>Providers</strong><small>Torch-TensorRT, ONNX Runtime, TorchAO, and private compilers</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
             <a class="resource-row reveal" href="guides.html#agents"><i data-lucide="bot" aria-hidden="true"></i><span><strong>Agent toolkit</strong><small>Registered workloads and bounded JSON tools</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
             <a class="resource-row reveal" href="guides.html#migration"><i data-lucide="git-compare-arrows" aria-hidden="true"></i><span><strong>Version 2 migration</strong><small>Move from AutoOptimizer tuples to OptimizationResult</small></span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
+            <a class="resource-row reveal" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/paper-launch.md"><i data-lucide="file-chart-column" aria-hidden="true"></i><span><strong>Paper protocol</strong><small>Baselines, ablations, statistics, claims, and release artifacts</small></span><i data-lucide="arrow-up-right" aria-hidden="true"></i></a>
           </div>
         </div>
       </section>

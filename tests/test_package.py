@@ -1,6 +1,7 @@
 import json
 import time
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import torch
@@ -12,12 +13,21 @@ from custom_dl_optimizer import (
     AutoOptimizer,
     CandidateReport,
     FunctionCandidateProvider,
+    ONNXRuntimeProvider,
     OptimizationAgentToolkit,
     OptimizationConfig,
     OptimizationResult,
     Optimizer,
+    PlanCache,
+    TorchAOQuantizationProvider,
+    TorchTensorRTProvider,
+    WorkloadCase,
+    WorkloadProfile,
+    create_plan_cache_key,
+    export_paper_artifacts,
     inspect_runtime,
 )
+from custom_dl_optimizer.cli import main as cli_main
 from custom_dl_optimizer.core.engine import _populate_candidate_metrics
 from custom_dl_optimizer.core.graph_surgeon import optimize_graph
 from custom_dl_optimizer.core.triton_kernels import TritonReLU
@@ -34,7 +44,7 @@ FAST_CONFIG = OptimizationConfig(
 
 
 def test_version_exported():
-    assert custom_dl_optimizer.__version__ == "2.1.0"
+    assert custom_dl_optimizer.__version__ == "2.2.0"
 
 
 def test_cpu_optimizer_runs_and_exposes_report():
@@ -339,3 +349,197 @@ def test_amortized_selection_changes_after_break_even():
     assert short_selection == "eager_fp32"
     assert long_selection == "compiled_provider"
     assert "500 calls" in reason
+
+
+def test_weighted_workload_profile_measures_every_case():
+    profile = WorkloadProfile(
+        name="mixed-batches",
+        expected_calls=100,
+        cases=(
+            WorkloadCase(name="batch-1", args=(torch.randn(1, 4),), weight=1),
+            WorkloadCase(name="batch-8", args=(torch.randn(8, 4),), weight=3),
+        ),
+    )
+    config = replace(
+        FAST_CONFIG,
+        selection_iterations=2,
+        selection_repeats=2,
+    )
+    result = Optimizer(device="cpu", config=config).optimize_workload(
+        nn.Linear(4, 4).eval(),
+        profile,
+    )
+
+    assert result.report.workload_name == "mixed-batches"
+    assert result.report.expected_calls == 100
+    valid = [candidate for candidate in result.report.candidates if candidate.latency_ms]
+    assert valid
+    for candidate in valid:
+        assert len(candidate.workload_cases) == 2
+        assert sum(case.weight for case in candidate.workload_cases) == pytest.approx(1.0)
+        assert len(candidate.latency_samples_ms) == 4
+        assert candidate.latency_p95_ms is not None
+        assert candidate.latency_p99_ms is not None
+        assert candidate.latency_ci95_low_ms is not None
+        assert candidate.latency_ci95_high_ms is not None
+    assert result(torch.randn(3, 4)).shape == (3, 4)
+
+
+def test_plan_cache_reuses_a_validated_winner(tmp_path):
+    model = nn.Sequential(nn.Linear(4, 4), nn.ReLU()).eval()
+    inputs = torch.randn(2, 4)
+    config = replace(
+        FAST_CONFIG,
+        plan_cache_dir=str(tmp_path / "cache"),
+        cache_validation_iterations=1,
+        cache_max_latency_regression=1000.0,
+    )
+
+    first = Optimizer(device="cpu", config=config).optimize(model, inputs)
+    second = Optimizer(device="cpu", config=config).optimize(model, inputs)
+
+    assert not first.report.cache_hit
+    assert second.report.cache_hit
+    assert second.selected_plan == first.selected_plan
+    assert Path(second.report.cache_record_path).is_file()
+    assert "Reused cached plan" in second.report.selection_reason
+
+
+def test_plan_cache_key_changes_with_weights(tmp_path):
+    model = nn.Linear(4, 4).eval()
+    profile = WorkloadProfile.single(torch.randn(2, 4))
+    runtime = inspect_runtime("cpu")
+    key_before = create_plan_cache_key(model, profile, FAST_CONFIG, runtime)
+    with torch.no_grad():
+        model.weight.add_(1)
+    key_after = create_plan_cache_key(model, profile, FAST_CONFIG, runtime)
+
+    assert key_before != key_after
+    cache = PlanCache(tmp_path / "cache")
+    assert cache.records() == []
+
+
+def test_resource_constraint_rejects_slow_setup_provider():
+    def build_slow(model, context):
+        time.sleep(0.02)
+        return model
+
+    provider = FunctionCandidateProvider(name="slow_setup", builder=build_slow)
+    config = replace(FAST_CONFIG, max_setup_time_s=0.005)
+    result = Optimizer(
+        device="cpu",
+        config=config,
+        providers=(provider,),
+    ).optimize(nn.Linear(4, 4).eval(), torch.randn(2, 4))
+    candidate = next(
+        candidate for candidate in result.report.candidates if candidate.name == "slow_setup"
+    )
+
+    assert candidate.constraint_violations == ["setup_time_s>0.005"]
+    assert not candidate.selected
+
+
+def test_result_bundle_and_cli_report(tmp_path, capsys):
+    result = Optimizer(device="cpu", config=FAST_CONFIG).optimize(
+        nn.Linear(4, 4).eval(),
+        torch.randn(2, 4),
+    )
+    bundle = result.save_bundle(tmp_path / "bundle")
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["selected_plan"] == result.selected_plan
+    assert not manifest["executable_serialized"]
+    assert cli_main(["report", str(bundle / "report.json")]) == 0
+    output = capsys.readouterr().out
+    assert f"selected: {result.selected_plan}" in output
+    assert "p99 ms" in output
+
+
+def test_paper_export_writes_auditable_tables(tmp_path, capsys):
+    result = Optimizer(device="cpu", config=FAST_CONFIG).optimize(
+        nn.Linear(4, 4).eval(),
+        torch.randn(2, 4),
+    )
+    report_path = result.save_report(tmp_path / "report.json")
+    output_dir = tmp_path / "paper"
+
+    outputs = export_paper_artifacts([report_path], output_dir, plots=False)
+    assert {path.name for path in outputs} == {
+        "paper_candidates.csv",
+        "paper_workload_cases.csv",
+        "paper_results.tex",
+        "paper_artifacts.json",
+    }
+    manifest = json.loads((output_dir / "paper_artifacts.json").read_text(encoding="utf-8"))
+    assert manifest["candidate_rows"] == len(result.report.candidates)
+    assert manifest["latency_semantics"] == "serial invocation measurements"
+    assert cli_main(
+        [
+            "paper-export",
+            str(report_path),
+            "--output-dir",
+            str(tmp_path / "cli-paper"),
+            "--no-plots",
+        ]
+    ) == 0
+    assert "paper_candidates.csv" in capsys.readouterr().out
+
+
+def test_first_party_provider_identities_are_serializable():
+    providers = (
+        TorchTensorRTProvider(),
+        ONNXRuntimeProvider(),
+        TorchAOQuantizationProvider(),
+    )
+    for provider in providers:
+        json.dumps(provider.cache_identity())
+    assert providers[2].name == "torchao_int8_weight_only"
+
+
+def test_plan_cache_clear_preserves_unrelated_files(tmp_path):
+    root = tmp_path / "shared-directory"
+    root.mkdir()
+    unrelated = root / "keep.txt"
+    unrelated.write_text("keep", encoding="utf-8")
+    cache = PlanCache(root)
+    cache.save(
+        key="a" * 64,
+        selected_plan="native",
+        latency_ms=1.0,
+        report={},
+    )
+
+    assert cache.clear() == 1
+    assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
+def test_agent_toolkit_accepts_weighted_profile():
+    toolkit = OptimizationAgentToolkit(Optimizer(device="cpu", config=FAST_CONFIG))
+    profile = WorkloadProfile(
+        name="linear-traffic",
+        cases=(
+            WorkloadCase("small", args=(torch.randn(1, 4),), weight=3),
+            WorkloadCase("large", args=(torch.randn(4, 4),), weight=1),
+        ),
+    )
+    toolkit.register_workload_profile("linear-profile", nn.Linear(4, 4), profile)
+
+    report = toolkit.invoke("custom_dl_optimize", {"workload": "linear-profile"})
+    assert report["workload_name"] == "linear-traffic"
+
+
+def test_resource_and_cache_config_validation():
+    with pytest.raises(ValueError, match="max_setup_time_s"):
+        OptimizationConfig(max_setup_time_s=-1)
+    with pytest.raises(ValueError, match="cache_validation_iterations"):
+        OptimizationConfig(cache_validation_iterations=0)
+    with pytest.raises(ValueError, match="cache_max_latency_regression"):
+        OptimizationConfig(cache_max_latency_regression=0.9)
+    with pytest.raises(ValueError, match="measure_peak_memory"):
+        OptimizationConfig(max_peak_memory_mb=10, measure_peak_memory=False)
+
+
+@pytest.mark.parametrize("weight", [float("nan"), float("inf"), 0.0, -1.0])
+def test_workload_weight_must_be_finite_and_positive(weight):
+    with pytest.raises(ValueError, match="finite and positive"):
+        WorkloadCase("invalid", args=(torch.ones(1),), weight=weight)
