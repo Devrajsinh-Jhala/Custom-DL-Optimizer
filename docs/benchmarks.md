@@ -22,7 +22,7 @@ Use `Custom_DL_Optimizer_Research_Colab.ipynb` for paper-quality measurements. T
 - compiler pass coverage figure
 - output parity figure
 
-Version 2.2 reports can also be exported without notebook-specific parsing:
+Version 3 reports can also be exported without notebook-specific parsing:
 
 ```bash
 custom-dl-optimizer paper-export \
@@ -51,7 +51,7 @@ Average CNN speedups:
 - 1.09x over AMP/NHWC
 - 1.01x over AMP/NHWC + TorchInductor
 
-Interpretation: most of the gain over eager FP32 comes from known precision, layout, and compiler optimizations. The fixed path roughly matched TorchInductor across the suite and regressed on MobileNet-V2. Version 2 records eager-relative and native-relative evidence, and a custom or provider path must clear a guard threshold before replacing the native path.
+Interpretation: most of the gain over eager FP32 comes from known precision, layout, and compiler optimizations. The fixed path roughly matched TorchInductor across the suite and regressed on MobileNet-V2. Version 3 records eager-relative and native-relative evidence, and a challenger must clear a confidence-bounded guard threshold before replacing the native path.
 
 ## Reporting Template
 

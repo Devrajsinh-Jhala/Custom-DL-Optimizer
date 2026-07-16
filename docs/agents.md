@@ -5,9 +5,11 @@
 ## Register Workloads
 
 ```python
-from custom_dl_optimizer import OptimizationAgentToolkit, Optimizer
+from custom_dl_optimizer import ExecutionTarget, InferenceOptimizer, OptimizationAgentToolkit
 
-toolkit = OptimizationAgentToolkit(Optimizer(device="cuda"))
+toolkit = OptimizationAgentToolkit(
+    InferenceOptimizer(target=ExecutionTarget("cuda"))
+)
 toolkit.register_workload(
     "encoder-b16",
     encoder.eval(),

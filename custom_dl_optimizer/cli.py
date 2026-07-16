@@ -27,16 +27,21 @@ def _report_summary(path: Path) -> None:
     print(f"workload: {payload.get('workload_name', 'workload')}")
     print(f"selected: {payload.get('selected_plan', '-')}")
     print(f"basis: {payload.get('selection_basis', '-')}")
+    print(f"baseline: {payload.get('baseline_plan', '-') or '-'}")
+    print(f"confidence: {float(payload.get('confidence_level', 0.95)):.1%}")
+    print(f"confidence_gate_passed: {bool(payload.get('confidence_gate_passed', False))}")
     print(f"cache_hit: {bool(payload.get('cache_hit', False))}")
-    print("candidate                 median ms    p99 ms   peak MiB  parity  constraints")
+    print(
+        "candidate                 median ms    p99 ms  cost CI low cost CI high  parity"
+    )
     for candidate in payload.get("candidates", []):
-        constraints = ",".join(candidate.get("constraint_violations", [])) or "-"
         print(
             f"{candidate.get('name', '-')[:24]:24} "
             f"{_number(candidate.get('latency_ms')):>10} "
             f"{_number(candidate.get('latency_p99_ms')):>9} "
-            f"{_number(candidate.get('peak_memory_mb'), 1):>10} "
-            f"{str(bool(candidate.get('parity', False))):>7}  {constraints}"
+            f"{_number(candidate.get('selection_cost_ci_low_ms')):>11} "
+            f"{_number(candidate.get('selection_cost_ci_high_ms')):>12} "
+            f"{str(bool(candidate.get('parity', False))):>7}"
         )
 
 

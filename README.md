@@ -5,11 +5,11 @@
 [![Python](https://img.shields.io/pypi/pyversions/custom-dl-optimizer.svg)](https://pypi.org/project/custom-dl-optimizer/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-137a55.svg)](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/LICENSE)
 
-Custom-DL-Optimizer is an auditable, workload-aware PyTorch inference plan selector. Give it a model and representative serving inputs; it profiles eligible execution plans, validates every candidate against eager FP32, applies deployment constraints, and returns the plan with the best measured lifecycle cost.
+Custom-DL-Optimizer v3 is an auditable, workload-aware PyTorch inference plan selector. Give it a model and representative serving inputs; it builds eligible execution plans, validates every candidate against eager FP32, and replaces the native baseline only when a confidence-bounded speedup clears the deployment policy.
 
 [Project site](https://devrajsinh-jhala.github.io/Custom-DL-Optimizer/) | [Usage](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/usage.md) | [Provider API](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md) | [Research protocol](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/paper-launch.md) | [Research notebook](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/Custom_DL_Optimizer_Research_Colab.ipynb)
 
-> Status: research alpha. Use it for controlled inference experiments and deployment feasibility checks. It complements rather than replaces TorchInductor, Torch-TensorRT, TensorRT, ONNX Runtime, TVM, or vendor profilers.
+> Status: research beta. Use it for controlled inference experiments and deployment qualification. It orchestrates and evaluates PyTorch and provider plans; it does not replace their compiler or vendor profiling stacks.
 
 ## Why It Exists
 
@@ -22,13 +22,13 @@ Custom-DL-Optimizer makes those tradeoffs explicit:
 - rejects candidates that fail output structure or tolerance checks;
 - validates every candidate across weighted input shapes, batches, and keyword signatures;
 - records construction and lazy first-call time separately from steady-state latency;
-- reports request samples, median, P90/P95/P99, mean confidence intervals, incremental peak CUDA memory, and break-even calls;
-- optionally selects by projected total cost for an expected request volume;
+- reports request samples, median, P90/P95/P99, bootstrap mean bounds, incremental peak CUDA memory, and break-even calls;
+- selects by steady-state mean or projected lifecycle cost for an expected request volume;
 - rejects plans that exceed configured setup, first-call, or memory limits;
 - persists content-addressed decisions and revalidates cached winners before reuse;
 - includes optional Torch-TensorRT, ONNX Runtime, and TorchAO providers;
 - reports speedup against eager FP32 and the native optimized path;
-- falls back when custom work does not clear `min_speedup`;
+- retains the native baseline when a challenger's upper confidence bound does not clear `min_speedup` against the baseline's lower bound;
 - exports runtime provenance and results as JSON;
 - exposes a closed, dependency-neutral tool surface for in-process agents.
 
@@ -55,37 +55,47 @@ Triton and third-party compiler packages are runtime-detected. They are not forc
 
 ## Quick Start
 
-Version 2 uses a result-oriented API:
+Version 3 separates target, measurement, validation, and deployment policy:
 
 ```python
 import torch
 from torchvision.models import resnet50
 
-from custom_dl_optimizer import OptimizationConfig, Optimizer
+from custom_dl_optimizer import (
+    DeploymentConstraints,
+    ExecutionTarget,
+    InferenceOptimizer,
+    MeasurementPolicy,
+    OptimizationPolicy,
+)
 
 model = resnet50(weights=None).eval()
 sample = torch.randn(8, 3, 224, 224)
 
-optimizer = Optimizer(
-    device="cuda" if torch.cuda.is_available() else "cpu",
-    config=OptimizationConfig(
+optimizer = InferenceOptimizer(
+    target=ExecutionTarget("cuda" if torch.cuda.is_available() else "cpu"),
+    policy=OptimizationPolicy(
+        objective="lifecycle_latency",
         enable_compile=torch.cuda.is_available(),
         compile_mode="max-autotune",
-        expected_calls=50_000,
-        min_speedup=1.02,
+        measurement=MeasurementPolicy(iterations=20, repeats=3),
+        constraints=DeploymentConstraints(
+            expected_calls=50_000,
+            min_speedup=1.02,
+        ),
     ),
 )
-result = optimizer.optimize(model, sample)
+decision = optimizer.select_signature(model, sample)
 
 with torch.inference_mode():
-    output = result(sample)
+    output = decision(sample)
 
-print(result.selected_plan)
-print(result.report.selection_reason)
-result.save_report("artifacts/resnet50-optimization.json")
+print(decision.selected_plan)
+print(decision.report.selection_reason)
+decision.save_report("artifacts/resnet50-optimization.json")
 ```
 
-`OptimizationResult` owns both the callable selected module and the evidence used to select it. The selected wrapper prepares nested positional and keyword tensors for the target device and memory layout.
+`OptimizationDecision` owns the selected `BuiltPlan` and the evidence used to select it. Its runner can be a PyTorch module or another callable runtime adapter. The selected wrapper prepares nested positional and keyword tensors for the target device and memory layout.
 
 ## Workload-Aware Selection
 
@@ -103,7 +113,7 @@ profile = WorkloadProfile(
         WorkloadCase("batch-32", args=(batch_32,), weight=5),
     ),
 )
-result = optimizer.optimize_workload(model, profile)
+decision = optimizer.select(model, profile)
 ```
 
 Each candidate must pass parity for every case. Selection uses the normalized traffic weights, so a backend cannot win by optimizing an unrepresentative shape.
@@ -111,7 +121,7 @@ Each candidate must pass parity for every case. Selection uses the normalized tr
 ## Candidate Evidence
 
 ```python
-for candidate in result.report.candidates:
+for candidate in decision.report.candidates:
     print(
         candidate.name,
         candidate.latency_ms,
@@ -119,6 +129,10 @@ for candidate in result.report.candidates:
         candidate.latency_p99_ms,
         candidate.latency_ci95_low_ms,
         candidate.latency_ci95_high_ms,
+        candidate.selection_cost_ms,
+        candidate.selection_cost_ci_low_ms,
+        candidate.selection_cost_ci_high_ms,
+        candidate.confidence_gate_passed,
         candidate.peak_memory_mb,
         candidate.first_call_time_s,
         candidate.projected_total_ms,
@@ -144,10 +158,12 @@ Only valid candidates participate in selection. Pilot measurements are useful fo
 Resource policies are optional:
 
 ```python
-config = OptimizationConfig(
-    max_setup_time_s=30,
-    max_first_call_time_s=10,
-    max_peak_memory_mb=2048,
+policy = OptimizationPolicy(
+    constraints=DeploymentConstraints(
+        max_setup_time_s=30,
+        max_first_call_time_s=10,
+        max_peak_memory_mb=2048,
+    ),
 )
 ```
 
@@ -156,21 +172,21 @@ config = OptimizationConfig(
 Steady-state latency is the default selection basis. For a known serving horizon, set `expected_calls` to include candidate construction, lazy compilation on first invocation, and the remaining steady-state calls:
 
 ```python
-config = OptimizationConfig(
+policy = OptimizationPolicy(
+    objective="lifecycle_latency",
     enable_compile=True,
-    expected_calls=10_000,
-    min_speedup=1.02,
+    constraints=DeploymentConstraints(expected_calls=10_000, min_speedup=1.02),
 )
 ```
 
-The report exposes `selection_basis="projected_total_time"`, projected total milliseconds for each valid candidate, and its break-even call count against the fastest steady-state built-in baseline. This prevents a short-lived job from choosing a compiler whose build cost cannot be recovered.
+The report exposes `selection_basis="projected_total_time"`, lifecycle confidence bounds, projected total milliseconds, and break-even calls. This prevents a short-lived job from choosing a compiler whose build cost cannot be recovered.
 
 ## Persistent Plan Cache
 
 Enable a content-addressed cache to avoid re-running the full candidate race at every process start:
 
 ```python
-config = OptimizationConfig(
+policy = OptimizationPolicy(
     plan_cache_dir=".custom-dl-cache",
     reuse_cached_plan=True,
 )
@@ -184,14 +200,15 @@ First-party optional providers use the same policy as built-in plans:
 
 ```python
 from custom_dl_optimizer import (
+    ExecutionTarget,
     ONNXRuntimeProvider,
-    Optimizer,
+    InferenceOptimizer,
     TorchAOQuantizationProvider,
     TorchTensorRTProvider,
 )
 
-optimizer = Optimizer(
-    device="cuda",
+optimizer = InferenceOptimizer(
+    target=ExecutionTarget("cuda"),
     providers=(
         TorchTensorRTProvider(
             compile_options={"optimization_level": 3},
@@ -200,10 +217,10 @@ optimizer = Optimizer(
         TorchAOQuantizationProvider(scheme="int8_weight_only"),
     ),
 )
-result = optimizer.optimize(model, sample)
+decision = optimizer.select_signature(model, sample)
 ```
 
-Unavailable optional dependencies are reported without breaking the remaining race. Custom and private backends can still implement `CandidateProvider`. See the [provider documentation](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md).
+Unavailable optional dependencies are reported without breaking the remaining race. Custom, mobile, NPU, and private backends implement `ExecutionProvider` and return a `BuiltPlan`. Availability is explicit, so an absent vendor SDK cannot masquerade as a valid candidate. See the [provider documentation](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/providers.md).
 
 ## CLI and Decision Bundles
 
@@ -215,7 +232,7 @@ custom-dl-optimizer paper-export artifacts/run-*/report.json \
   --output-dir artifacts/paper
 ```
 
-`result.save_bundle("artifacts/run")` writes a report and portable decision manifest. Executable engine serialization remains provider-owned so the package never pretends a generic Python module is a deployable engine artifact.
+`decision.save_bundle("artifacts/run")` writes a schema-v3 report and portable decision manifest. Executable engine serialization remains provider-owned so the package never pretends a generic Python module is a deployable engine artifact.
 
 `paper-export` preserves raw samples in candidate-level and workload-case CSV files, writes a LaTeX results table and provenance manifest, and produces median/P99 figures when the `research` extra is installed. These are reporting artifacts, not a substitute for the controlled protocol in [paper-launch.md](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/paper-launch.md).
 
@@ -224,9 +241,11 @@ custom-dl-optimizer paper-export artifacts/run-*/report.json \
 Agents cannot safely transmit live modules or tensors through JSON. The host application therefore registers workloads in process, then exposes four bounded tools: inspect runtime, list workloads, optimize one workload, and read its report.
 
 ```python
-from custom_dl_optimizer import OptimizationAgentToolkit, Optimizer
+from custom_dl_optimizer import ExecutionTarget, InferenceOptimizer, OptimizationAgentToolkit
 
-toolkit = OptimizationAgentToolkit(Optimizer(device="cuda"))
+toolkit = OptimizationAgentToolkit(
+    InferenceOptimizer(target=ExecutionTarget("cuda"))
+)
 toolkit.register_workload(
     "resnet50-b8",
     model,
@@ -252,9 +271,9 @@ print(capabilities.as_dict())
 
 Reports include Python and PyTorch versions, device name and type, CUDA/cuDNN versions, compute capability, and the availability of AMP, channels-last, Triton, and `torch.compile`.
 
-## v1 Compatibility
+## Migration
 
-`AutoOptimizer` remains available for one transition release, but new code should use `Optimizer`. The primary v2 contract returns one `OptimizationResult` rather than a `(module, report)` tuple. See the [version 2 migration guide](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/migration-v2.md).
+The v3 primary API is `InferenceOptimizer.select(...) -> OptimizationDecision`. The v2 `Optimizer`, `OptimizationResult`, `OptimizationConfig`, and provider import paths remain compatibility aliases for one migration cycle, but new code should not depend on them. Cache and decision schemas intentionally changed and v2 cache records are ignored. See the [v3 migration guide](https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/docs/migration-v3.md).
 
 ## Historical Research Snapshot
 
@@ -268,7 +287,7 @@ An earlier fixed-path notebook run on an NVIDIA Tesla T4 produced the following 
 | EfficientNet-B0 | 128 | 146.788 ms | 70.784 ms | 66.409 ms | 2.21x | 1.07x |
 | DenseNet-121 | 128 | 360.750 ms | 194.997 ms | 193.169 ms | 1.87x | 1.01x |
 
-MobileNet-V2 is the important result: the experimental path regressed against Inductor. Version 2 measures and exposes that failure instead of assuming every rewrite is beneficial. Rerun the research notebook before citing any value.
+MobileNet-V2 is the important result: the experimental path regressed against Inductor. Version 3 measures and exposes that failure and retains a baseline when the evidence is insufficient. Rerun the research notebook before citing any value.
 
 ## Development
 

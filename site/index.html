@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Custom-DL-Optimizer measures PyTorch inference plans across real workload signatures, rejects unsafe candidates, and returns the fastest valid callable with evidence.">
+    <meta name="description" content="Custom-DL-Optimizer v3 uses confidence-gated lifecycle evidence to select heterogeneous PyTorch inference plans.">
     <meta name="theme-color" content="#09100d">
-    <meta property="og:title" content="Custom-DL-Optimizer v2.2">
-    <meta property="og:description" content="Profile the workload. Race every eligible plan. Keep the fastest valid one.">
+    <meta property="og:title" content="Custom-DL-Optimizer v3">
+    <meta property="og:description" content="Build every eligible plan. Replace the baseline only when the evidence clears the gate.">
     <meta property="og:type" content="website">
     <meta property="og:image" content="assets/og-v2.jpg">
     <title>Custom-DL-Optimizer | Benchmark-driven PyTorch inference selection</title>
@@ -145,9 +145,9 @@
           <ol class="workflow-grid">
             <li class="workflow-step reveal"><span>01</span><i data-lucide="layers-3" aria-hidden="true"></i><h3>Profile traffic</h3><p>Normalize real batches, shapes, dtypes, keyword forms, and weights.</p></li>
             <li class="workflow-step reveal"><span>02</span><i data-lucide="workflow" aria-hidden="true"></i><h3>Build candidates</h3><p>Clone the module and construct eligible built-in and provider plans.</p></li>
-            <li class="workflow-step reveal"><span>03</span><i data-lucide="gauge" aria-hidden="true"></i><h3>Measure cost</h3><p>Record setup, first calls, serial distributions, memory, and break-even.</p></li>
+            <li class="workflow-step reveal"><span>03</span><i data-lucide="gauge" aria-hidden="true"></i><h3>Measure cost</h3><p>Record setup, first calls, serial distributions, memory, and bootstrap bounds.</p></li>
             <li class="workflow-step reveal"><span>04</span><i data-lucide="badge-check" aria-hidden="true"></i><h3>Gate validity</h3><p>Reject parity failures, runtime errors, and policy violations.</p></li>
-            <li class="workflow-step reveal"><span>05</span><i data-lucide="database-zap" aria-hidden="true"></i><h3>Select and cache</h3><p>Return the best valid callable and revalidate it on later launches.</p></li>
+            <li class="workflow-step reveal"><span>05</span><i data-lucide="database-zap" aria-hidden="true"></i><h3>Select and cache</h3><p>Replace the baseline only after the confidence gate, then revalidate later.</p></li>
           </ol>
         </div>
       </section>
@@ -175,7 +175,7 @@
             </div>
             <div class="use-output" aria-label="Deployment decision example">
               <p>SELECTED PLAN</p><strong>fx_inductor</strong>
-              <dl><div><dt>Projected gain</dt><dd>1.18x</dd></div><div><dt>Parity</dt><dd class="pass">passed</dd></div><div><dt>Break-even</dt><dd>214 calls</dd></div><div><dt>Fallback</dt><dd>native</dd></div></dl>
+              <dl><div><dt>Mean gain</dt><dd>1.18x</dd></div><div><dt>95% gate</dt><dd class="pass">passed</dd></div><div><dt>Break-even</dt><dd>214 calls</dd></div><div><dt>Baseline</dt><dd>native</dd></div></dl>
             </div>
           </div>
 
@@ -225,34 +225,36 @@
                   <i data-lucide="copy" aria-hidden="true"></i>
                 </button>
               </div>
-              <pre><code id="quickstart-code">from custom_dl_optimizer import OptimizationConfig, Optimizer
+              <pre><code id="quickstart-code">from custom_dl_optimizer import (
+    ExecutionTarget, InferenceOptimizer,
+    OptimizationPolicy,
+)
 
-optimizer = Optimizer(
-    device="cuda",
-    config=OptimizationConfig(
+optimizer = InferenceOptimizer(
+    target=ExecutionTarget("cuda"),
+    policy=OptimizationPolicy(
         enable_compile=True,
         plan_cache_dir=".custom-dl-cache",
-        min_speedup=1.02,
     ),
 )
 
-result = optimizer.optimize(model.eval(), sample)
-output = result(sample)
+decision = optimizer.select_signature(model.eval(), sample)
+output = decision(sample)
 
-candidate = result.report.selected_candidate
+candidate = decision.report.selected_candidate
 speedup = candidate.speedup_vs_native
-bundle = result.save_bundle("artifacts/run")
+bundle = decision.save_bundle("artifacts/run")
 
-print(f"selected      {result.selected_plan}")
-print(f"median_ms     {candidate.latency_ms:.2f}")
-print(f"p90_ms        {candidate.latency_p90_ms:.2f}")
+print(f"selected      {decision.selected_plan}")
+print(f"mean_cost_ms  {candidate.selection_cost_ms:.2f}")
+print(f"cost_ci_high  {candidate.selection_cost_ci_high_ms:.2f}")
 print(
     "speedup       baseline"
     if speedup is None
     else f"speedup       {speedup:.2f}x vs native"
 )
 print(f"parity        {candidate.parity}")
-print(f"cache_hit     {result.report.cache_hit}")
+print(f"gate_passed   {decision.report.confidence_gate_passed}")
 print(f"output_shape  {tuple(output.shape)}")
 print(f"saved         {bundle}")</code></pre>
             </div>
@@ -264,16 +266,16 @@ print(f"saved         {bundle}")</code></pre>
               </div>
               <div class="terminal-command"><span>$</span> python optimize.py</div>
               <pre><code>selected      fx_inductor
-median_ms     8.41
-p90_ms        8.56
+mean_cost_ms  8.43
+cost_ci_high  8.49
 speedup       1.18x vs native
 parity        True
-cache_hit     False
+gate_passed   True
 output_shape  (8, 10)
 saved         artifacts/run</code></pre>
               <div class="result-contract" aria-label="Optimization result contents">
-                <div><i data-lucide="play" aria-hidden="true"></i><span><strong>Callable</strong><code>result(sample)</code> runs the selected module.</span></div>
-                <div><i data-lucide="file-chart-column" aria-hidden="true"></i><span><strong>Evidence</strong><code>result.report</code> records candidates, parity, latency, memory, and failures.</span></div>
+                <div><i data-lucide="play" aria-hidden="true"></i><span><strong>Callable</strong><code>decision(sample)</code> runs the selected plan.</span></div>
+                <div><i data-lucide="file-chart-column" aria-hidden="true"></i><span><strong>Evidence</strong><code>decision.report</code> records costs, bounds, parity, and failures.</span></div>
                 <div><i data-lucide="folder-archive" aria-hidden="true"></i><span><strong>Bundle</strong><code>manifest.json</code> and <code>report.json</code> preserve the decision.</span></div>
               </div>
             </div>
@@ -294,7 +296,7 @@ saved         artifacts/run</code></pre>
           <div class="provider-matrix reveal" aria-label="Supported plan families">
             <div><span>BUILT IN</span><strong>PyTorch eager</strong><strong>AMP / layout</strong><strong>FX rewrites</strong><strong>FX + Inductor</strong></div>
             <div><span>OPTIONAL PROVIDERS</span><strong>Torch-TensorRT</strong><strong>ONNX Runtime</strong><strong>TorchAO</strong><strong>Private backend</strong></div>
-            <p><i data-lucide="file-chart-column" aria-hidden="true"></i><span><b>One comparable report</b>Per-case latency, parity, first call, constraints, cache state, and failures</span></p>
+            <p><i data-lucide="file-chart-column" aria-hidden="true"></i><span><b>One comparable report</b>Per-case latency, lifecycle bounds, parity, constraints, cache state, and failures</span></p>
           </div>
         </div>
       </section>
@@ -321,7 +323,7 @@ saved         artifacts/run</code></pre>
             </table>
           </div>
           <div class="evidence-footer reveal">
-            <p><i data-lucide="info" aria-hidden="true"></i><span>Historical hardware snapshot, not a v2.2 benchmark and not a state-of-the-art claim. Reproduce every baseline before citing results.</span></p>
+            <p><i data-lucide="info" aria-hidden="true"></i><span>Historical hardware snapshot, not a v3 benchmark and not a state-of-the-art claim. Reproduce every baseline before citing results.</span></p>
             <a href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/blob/master/Custom_DL_Optimizer_Research_Colab.ipynb">Open research notebook <i data-lucide="arrow-up-right" aria-hidden="true"></i></a>
           </div>
         </div>
@@ -344,7 +346,7 @@ saved         artifacts/run</code></pre>
 
       <section class="cta-band">
         <div class="section-shell cta-inner">
-          <div><p class="eyebrow light">Custom-DL-Optimizer v2.2</p><h2>Do not guess which backend wins. Measure it.</h2></div>
+          <div><p class="eyebrow light">Custom-DL-Optimizer v3</p><h2>Replace the baseline only when the evidence is clear.</h2></div>
           <div class="cta-actions">
             <a class="button button-primary" href="guides.html#usage"><i data-lucide="rocket" aria-hidden="true"></i> Get started</a>
             <a class="button button-secondary" href="https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer"><i data-lucide="github" aria-hidden="true"></i> View repository</a>

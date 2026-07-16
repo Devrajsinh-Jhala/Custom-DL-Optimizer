@@ -4,8 +4,10 @@ import torch
 import torch.nn as nn
 
 from custom_dl_optimizer import (
-    OptimizationConfig,
-    Optimizer,
+    DeploymentConstraints,
+    ExecutionTarget,
+    InferenceOptimizer,
+    OptimizationPolicy,
     WorkloadCase,
     WorkloadProfile,
 )
@@ -35,29 +37,35 @@ profile = WorkloadProfile(
         WorkloadCase("batch-32", args=(torch.randn(32, 128),), weight=5),
     ),
 )
-optimizer = Optimizer(
-    device=device,
-    config=OptimizationConfig(
+optimizer = InferenceOptimizer(
+    target=ExecutionTarget(device),
+    policy=OptimizationPolicy(
+        objective="lifecycle_latency",
         enable_compile=torch.cuda.is_available(),
         dynamic_shapes=True,
         plan_cache_dir=str(Path(".custom-dl-cache")),
-        max_first_call_time_s=60,
-        min_speedup=1.02,
+        constraints=DeploymentConstraints(
+            expected_calls=50_000,
+            max_first_call_time_s=60,
+            min_speedup=1.02,
+        ),
     ),
 )
-result = optimizer.optimize_workload(TinyClassifier().eval(), profile)
-result.save_bundle("artifacts/workload-profile")
+decision = optimizer.select(TinyClassifier().eval(), profile)
+decision.save_bundle("artifacts/workload-profile")
 
-print(result.selected_plan)
-print(result.report.selection_reason)
-print("cache_hit", result.report.cache_hit)
-for warning in result.report.warnings:
+print(decision.selected_plan)
+print(decision.report.selection_reason)
+print("cache_hit", decision.report.cache_hit)
+for warning in decision.report.warnings:
     print("warning", warning)
-for candidate in result.report.candidates:
+for candidate in decision.report.candidates:
     print(
         candidate.name,
         candidate.latency_ms,
         candidate.latency_p99_ms,
         candidate.projected_total_ms,
+        candidate.selection_cost_ci_low_ms,
+        candidate.selection_cost_ci_high_ms,
         candidate.constraint_violations,
     )

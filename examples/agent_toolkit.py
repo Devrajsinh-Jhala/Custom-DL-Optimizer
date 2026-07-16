@@ -1,17 +1,23 @@
 import torch
 import torch.nn as nn
 
-from custom_dl_optimizer import OptimizationAgentToolkit, OptimizationConfig, Optimizer
+from custom_dl_optimizer import (
+    ExecutionTarget,
+    InferenceOptimizer,
+    MeasurementPolicy,
+    OptimizationAgentToolkit,
+    OptimizationPolicy,
+)
 
 
 def main():
     model = nn.Sequential(nn.Linear(16, 32), nn.GELU(), nn.Linear(32, 16)).eval()
     sample = torch.randn(8, 16)
-    optimizer = Optimizer(
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        config=OptimizationConfig(
+    optimizer = InferenceOptimizer(
+        target=ExecutionTarget("cuda" if torch.cuda.is_available() else "cpu"),
+        policy=OptimizationPolicy(
             enable_profiling=False,
-            selection_iterations=5,
+            measurement=MeasurementPolicy(iterations=5),
         ),
     )
     toolkit = OptimizationAgentToolkit(optimizer)

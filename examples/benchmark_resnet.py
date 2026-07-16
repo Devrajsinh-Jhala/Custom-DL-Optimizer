@@ -3,7 +3,12 @@ import time
 import torch
 from torchvision.models import resnet50
 
-from custom_dl_optimizer import OptimizationConfig, Optimizer
+from custom_dl_optimizer import (
+    DeploymentConstraints,
+    ExecutionTarget,
+    InferenceOptimizer,
+    OptimizationPolicy,
+)
 
 
 def benchmark(model, inputs, iterations=50, warmup=10):
@@ -38,20 +43,21 @@ def main():
     baseline_inputs = inputs.to(device)
 
     baseline_ms = benchmark(baseline_model, baseline_inputs)
-    config = OptimizationConfig(
+    policy = OptimizationPolicy(
+        objective="lifecycle_latency",
         enable_compile=torch.cuda.is_available(),
         compile_mode="max-autotune",
-        expected_calls=50_000,
+        constraints=DeploymentConstraints(expected_calls=50_000),
     )
-    optimizer = Optimizer(device=device, config=config)
-    result = optimizer.optimize(model, inputs)
-    optimized_ms = benchmark(result, inputs)
+    optimizer = InferenceOptimizer(target=ExecutionTarget(device), policy=policy)
+    decision = optimizer.select_signature(model, inputs)
+    optimized_ms = benchmark(decision, inputs)
 
     print(f"Baseline latency: {baseline_ms:.3f} ms")
     print(f"Optimized latency: {optimized_ms:.3f} ms")
     print(f"Speedup: {baseline_ms / optimized_ms:.2f}x")
-    print(f"Selected plan: {result.selected_plan}")
-    selected = result.report.selected_candidate
+    print(f"Selected plan: {decision.selected_plan}")
+    selected = decision.report.selected_candidate
     if selected is not None:
         print(
             "Selection median / P90: "
@@ -62,6 +68,11 @@ def main():
             f"{selected.setup_time_s:.3f} / {selected.first_call_time_s:.3f} s"
         )
         print(f"Break-even calls: {selected.break_even_calls_vs_baseline}")
+        print(
+            "Selection cost CI: "
+            f"{selected.selection_cost_ci_low_ms:.3f} / "
+            f"{selected.selection_cost_ci_high_ms:.3f} ms"
+        )
 
 
 if __name__ == "__main__":

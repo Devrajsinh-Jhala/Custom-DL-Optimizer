@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Custom-DL-Optimizer version 2 usage, provider, agent, and migration guides.">
+    <meta name="description" content="Custom-DL-Optimizer version 3 usage, provider, agent, and migration guides.">
     <meta name="theme-color" content="#0b100e">
     <title>Guides | Custom-DL-Optimizer</title>
     <link rel="icon" type="image/jpeg" href="assets/og-v2.jpg">
@@ -31,9 +31,9 @@
     <main class="guide-main" id="guide-main">
       <div class="section-shell">
         <header class="guide-intro">
-          <p class="eyebrow dark">Version 2.2 documentation</p>
+          <p class="eyebrow dark">Version 3 documentation</p>
           <h1>Build an optimization workflow you can audit.</h1>
-          <p>These guides cover weighted workloads, persistent plan decisions, first-party runtime providers, bounded agent tools, and migration from version 1.</p>
+          <p>These guides cover confidence-gated workloads, versioned decisions, heterogeneous providers, bounded agent tools, and migration from version 2.</p>
           <nav class="guide-nav" aria-label="On this page">
             <a href="#usage">Usage</a><a href="#providers">Providers</a><a href="#agents">Agents</a><a href="#migration">Migration</a>
           </nav>
@@ -44,16 +44,21 @@
           <h2>Optimize the serving distribution.</h2>
           <p>A single signature remains supported. For production selection, supply weighted cases for the shapes, batches, dtypes, and keyword forms that actually receive traffic.</p>
           <pre><code>from custom_dl_optimizer import (
-    OptimizationConfig, Optimizer,
+    DeploymentConstraints, ExecutionTarget,
+    InferenceOptimizer, OptimizationPolicy,
     WorkloadCase, WorkloadProfile,
 )
 
-optimizer = Optimizer(
-    device="cuda",
-    config=OptimizationConfig(
+optimizer = InferenceOptimizer(
+    target=ExecutionTarget("cuda"),
+    policy=OptimizationPolicy(
+        objective="lifecycle_latency",
         enable_compile=True,
         plan_cache_dir=".custom-dl-cache",
-        min_speedup=1.02,
+        constraints=DeploymentConstraints(
+            expected_calls=10_000,
+            min_speedup=1.02,
+        ),
     ),
 )
 profile = WorkloadProfile(
@@ -64,32 +69,33 @@ profile = WorkloadProfile(
         WorkloadCase("b8", args=(batch_8,), weight=20),
     ),
 )
-result = optimizer.optimize_workload(model.eval(), profile)
-result.save_bundle("artifacts/optimization")</code></pre>
+decision = optimizer.select(model.eval(), profile)
+decision.save_bundle("artifacts/optimization")</code></pre>
           <h3>Read the decision</h3>
-          <p>Each candidate records per-case first calls and parity, serial P50/P90/P95/P99 samples, mean confidence bounds, incremental CUDA allocation, constraints, projected total time, break-even calls, and failures. Cached winners are revalidated before reuse.</p>
+          <p>Each candidate records per-case first calls and parity, serial P50/P90/P95/P99 samples, bootstrap lifecycle bounds, incremental CUDA allocation, constraints, break-even calls, and failures. Overlapping evidence retains the native baseline.</p>
           <h3>Correctness boundary</h3>
           <p>Candidates must preserve output structure and satisfy <code>torch.allclose</code> using configured tolerances. Always run task-level accuracy evaluation before deployment.</p>
         </article>
 
         <article class="guide-article" id="providers">
-          <p class="eyebrow dark">Candidate providers</p>
+          <p class="eyebrow dark">Execution providers</p>
           <h2>Compare maintained runtimes under the same policy.</h2>
           <p>First-party providers cover Torch-TensorRT, ONNX Runtime, and TorchAO. Private backends can still implement the provider protocol.</p>
           <pre><code>from custom_dl_optimizer import (
-    ONNXRuntimeProvider, Optimizer,
+    ExecutionTarget, InferenceOptimizer,
+    ONNXRuntimeProvider,
     TorchAOQuantizationProvider,
     TorchTensorRTProvider,
 )
 
-result = Optimizer(
-    device="cuda",
+decision = InferenceOptimizer(
+    target=ExecutionTarget("cuda"),
     providers=(
         TorchTensorRTProvider(),
         ONNXRuntimeProvider(),
         TorchAOQuantizationProvider(),
     ),
-).optimize(model, sample)</code></pre>
+).select_signature(model, sample)</code></pre>
           <h3>Fair comparison</h3>
           <p>Keep transfers and precision consistent, separate engine-build cost from steady-state latency, warm caches, expose provider configuration, and never silently run another backend under the same provider name.</p>
         </article>
@@ -98,9 +104,11 @@ result = Optimizer(
           <p class="eyebrow dark">Agent toolkit</p>
           <h2>Register objects locally; expose names remotely.</h2>
           <p>Live modules and tensors stay in the host process. The toolkit exposes only runtime inspection, workload listing, optimization, and report retrieval.</p>
-          <pre><code>from custom_dl_optimizer import OptimizationAgentToolkit, Optimizer
+          <pre><code>from custom_dl_optimizer import ExecutionTarget, InferenceOptimizer, OptimizationAgentToolkit
 
-toolkit = OptimizationAgentToolkit(Optimizer(device="cuda"))
+toolkit = OptimizationAgentToolkit(
+    InferenceOptimizer(target=ExecutionTarget("cuda"))
+)
 toolkit.register_workload(
     "encoder-b16",
     encoder,
@@ -119,18 +127,19 @@ report = toolkit.invoke(
 
         <article class="guide-article" id="migration">
           <p class="eyebrow dark">Migration</p>
-          <h2>Move from a tuple to one result object.</h2>
-          <p>Version 1 constructed <code>AutoOptimizer</code> around a model and returned a module/report tuple. Version 2 constructs reusable optimizer policy and returns <code>OptimizationResult</code>.</p>
-          <pre><code># Version 1
-engine = AutoOptimizer(model, config=config)
-module, report = engine.optimize_with_report(sample)
+          <h2>Move from point estimates to a versioned decision.</h2>
+          <p>Version 2 used a flat <code>OptimizationConfig</code> and provider modules. Version 3 separates target, policy, runner, plan, and decision contracts.</p>
+          <pre><code># Version 2
+result = Optimizer(device="cuda", config=config).optimize(model, sample)
 
-# Version 2
-optimizer = Optimizer(config=config)
-result = optimizer.optimize(model, sample)
-module = result.module
-report = result.report</code></pre>
-          <p><code>AutoOptimizer</code> remains available for one transition release. New integrations should use the version 2 result contract.</p>
+# Version 3
+decision = InferenceOptimizer(
+    target=ExecutionTarget("cuda"),
+    policy=policy,
+).select_signature(model, sample)
+runner = decision.runner
+report = decision.report</code></pre>
+          <p>Report, bundle, paper-export, and cache schemas are version 3. Existing v2 cache records are ignored.</p>
         </article>
       </div>
     </main>

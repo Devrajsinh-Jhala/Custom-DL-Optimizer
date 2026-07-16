@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-17
+
+### Added
+
+- Confidence-gated plan replacement using deterministic bootstrap mean-cost bounds.
+- Explicit `ExecutionTarget`, `MeasurementPolicy`, `ValidationPolicy`, `DeploymentConstraints`, and `OptimizationPolicy` contracts.
+- Callable `InferenceRunner`, `BuiltPlan`, `ProviderAvailability`, and `ExecutionProvider` contracts for heterogeneous runtimes.
+- `InferenceOptimizer.select` and callable `OptimizationDecision` primary API.
+- Versioned report, bundle, paper-export, and cache schemas with baseline, seed, candidate order, cost bounds, and rejection evidence.
+- Contract tests for lifecycle amortization, uncertainty gating, provider failure isolation, generic runners, deterministic order, and cache migration.
+
+### Changed
+
+- Selection uses weighted mean lifecycle cost rather than a median point estimate.
+- A challenger replaces the fastest valid eager/native baseline only when its upper confidence bound clears `min_speedup` against the baseline lower bound.
+- Provider availability reports a reason and provider builds return plans with artifacts and provenance metadata.
+- First-party Torch-TensorRT, ONNX Runtime, and TorchAO integrations implement the v3 provider contract.
+- Candidate measurement order is randomized deterministically to reduce fixed ordering bias.
+
+### Compatibility
+
+- v2 top-level names remain aliases for one migration cycle.
+- Cache schema v3 intentionally rejects v2 decisions that lack confidence evidence.
+
 ## [2.2.0] - 2026-07-15
 
 ### Added
@@ -85,7 +109,8 @@ All notable changes to this project are documented here.
 
 - Initial PyPI package with FX ReLU replacement, Triton kernel injection, channels-last layout, and AMP.
 
-[Unreleased]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v2.2.0...v3.0.0
 [2.2.0]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Devrajsinh-Jhala/Custom-DL-Optimizer/compare/v1.1.0...v2.0.0

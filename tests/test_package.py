@@ -44,7 +44,7 @@ FAST_CONFIG = OptimizationConfig(
 
 
 def test_version_exported():
-    assert custom_dl_optimizer.__version__ == "2.2.0"
+    assert custom_dl_optimizer.__version__ == "3.0.0"
 
 
 def test_cpu_optimizer_runs_and_exposes_report():

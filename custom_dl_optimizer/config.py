@@ -23,6 +23,10 @@ class OptimizationConfig:
     selection_repeats: int = 3
     expected_calls: int | None = None
     min_speedup: float = 1.02
+    confidence_level: float = 0.95
+    bootstrap_resamples: int = 1_000
+    random_seed: int = 17
+    randomize_candidate_order: bool = True
     max_setup_time_s: float | None = None
     max_first_call_time_s: float | None = None
     max_peak_memory_mb: float | None = None
@@ -45,6 +49,10 @@ class OptimizationConfig:
             raise ValueError("expected_calls must be at least 1 when provided")
         if self.min_speedup < 1.0:
             raise ValueError("min_speedup must be at least 1.0")
+        if not 0.5 < self.confidence_level < 1.0:
+            raise ValueError("confidence_level must be between 0.5 and 1.0")
+        if self.bootstrap_resamples < 100:
+            raise ValueError("bootstrap_resamples must be at least 100")
         if self.max_setup_time_s is not None and self.max_setup_time_s < 0:
             raise ValueError("max_setup_time_s must be non-negative")
         if self.max_first_call_time_s is not None and self.max_first_call_time_s < 0:

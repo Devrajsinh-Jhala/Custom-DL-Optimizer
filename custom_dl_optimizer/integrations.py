@@ -8,7 +8,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from .providers import CandidateContext
+from .providers import BuiltPlan, ProviderAvailability, ProviderContext
 
 
 @dataclass(frozen=True)
@@ -19,8 +19,12 @@ class TorchTensorRTProvider:
     compile_options: dict[str, Any] = field(default_factory=dict)
     enable_engine_cache: bool = True
 
-    def is_available(self, context: CandidateContext) -> bool:
-        return context.device.type == "cuda" and find_spec("torch_tensorrt") is not None
+    def probe(self, context: ProviderContext) -> ProviderAvailability:
+        if context.device.type != "cuda":
+            return ProviderAvailability.unsupported("Torch-TensorRT requires CUDA")
+        if find_spec("torch_tensorrt") is None:
+            return ProviderAvailability.unsupported("torch_tensorrt is not installed")
+        return ProviderAvailability.supported()
 
     def cache_identity(self) -> dict[str, Any]:
         return {
@@ -29,7 +33,7 @@ class TorchTensorRTProvider:
             "enable_engine_cache": self.enable_engine_cache,
         }
 
-    def build(self, model: nn.Module, context: CandidateContext) -> nn.Module:
+    def build(self, model: nn.Module, context: ProviderContext) -> BuiltPlan:
         import torch_tensorrt  # noqa: F401
 
         options = dict(self.compile_options)
@@ -42,11 +46,19 @@ class TorchTensorRTProvider:
                     "timing_cache_path",
                     str(context.artifact_dir / "timing-cache.bin"),
                 )
-        return torch.compile(
+        runner = torch.compile(
             model,
             backend="torch_tensorrt",
-            dynamic=context.config.dynamic_shapes,
+            dynamic=context.policy.dynamic_shapes,
             options=options,
+        )
+        artifacts = ()
+        if context.artifact_dir is not None:
+            artifacts = (str(context.artifact_dir),)
+        return BuiltPlan(
+            runner=runner,
+            artifacts=artifacts,
+            metadata={"backend": "torch_tensorrt", "options": options},
         )
 
 
@@ -174,20 +186,31 @@ class ONNXRuntimeProvider:
             return ("CUDAExecutionProvider", "CPUExecutionProvider")
         return ("CPUExecutionProvider",)
 
-    def is_available(self, context: CandidateContext) -> bool:
+    def probe(self, context: ProviderContext) -> ProviderAvailability:
         if find_spec("onnx") is None or find_spec("onnxruntime") is None:
-            return False
+            return ProviderAvailability.unsupported("onnx and onnxruntime are required")
         import onnxruntime as ort
 
         available = set(ort.get_available_providers())
         requested = self._providers(context.device)
         if context.device.type == "cuda":
-            return any(
+            available_on_target = any(
                 provider in available
                 for provider in ("CUDAExecutionProvider", "TensorrtExecutionProvider")
                 if provider in requested
             )
-        return "CPUExecutionProvider" in available
+            return (
+                ProviderAvailability.supported()
+                if available_on_target
+                else ProviderAvailability.unsupported(
+                    "Requested ONNX Runtime GPU execution provider is unavailable"
+                )
+            )
+        if "CPUExecutionProvider" not in available:
+            return ProviderAvailability.unsupported(
+                "ONNX Runtime CPUExecutionProvider is unavailable"
+            )
+        return ProviderAvailability.supported()
 
     def cache_identity(self) -> dict[str, Any]:
         return {
@@ -197,7 +220,7 @@ class ONNXRuntimeProvider:
             "opset_version": self.opset_version,
         }
 
-    def build(self, model: nn.Module, context: CandidateContext) -> nn.Module:
+    def build(self, model: nn.Module, context: ProviderContext) -> BuiltPlan:
         if context.example_kwargs:
             raise TypeError("ONNX Runtime provider currently accepts positional inputs only")
         if not all(isinstance(value, torch.Tensor) for value in context.example_args):
@@ -214,7 +237,7 @@ class ONNXRuntimeProvider:
         output_specification = _flatten_output(reference, flat_outputs)
         output_names = tuple(f"output_{index}" for index in range(len(flat_outputs)))
         dynamic_axes = None
-        if context.config.dynamic_shapes:
+        if context.policy.dynamic_shapes:
             dynamic_axes = {
                 name: {axis: f"{name}_dim_{axis}" for axis in range(value.dim())}
                 for name, value in zip(
@@ -250,12 +273,18 @@ class ONNXRuntimeProvider:
             providers=providers,
             provider_options=options,
         )
-        return _ONNXRuntimeModule(
+        runner = _ONNXRuntimeModule(
             session,
             device=context.device,
             input_names=input_names,
             output_names=output_names,
             output_specification=output_specification,
+        )
+        artifacts = (destination,) if isinstance(destination, str) else ()
+        return BuiltPlan(
+            runner=runner,
+            artifacts=artifacts,
+            metadata={"backend": "onnxruntime", "execution_providers": providers},
         )
 
 
@@ -272,8 +301,10 @@ class TorchAOQuantizationProvider:
         if not self.name:
             object.__setattr__(self, "name", f"torchao_{self.scheme}")
 
-    def is_available(self, context: CandidateContext) -> bool:
-        return find_spec("torchao") is not None
+    def probe(self, context: ProviderContext) -> ProviderAvailability:
+        if find_spec("torchao") is None:
+            return ProviderAvailability.unsupported("torchao is not installed")
+        return ProviderAvailability.supported()
 
     def cache_identity(self) -> dict[str, Any]:
         return {
@@ -283,7 +314,7 @@ class TorchAOQuantizationProvider:
             "compile_model": self.compile_model,
         }
 
-    def build(self, model: nn.Module, context: CandidateContext) -> nn.Module:
+    def build(self, model: nn.Module, context: ProviderContext) -> BuiltPlan:
         import torchao.quantization as quantization
 
         factories = {
@@ -300,9 +331,12 @@ class TorchAOQuantizationProvider:
             raise ValueError(f"Unknown TorchAO scheme {self.scheme!r}; choose from {supported}")
         quantization.quantize_(model, factories[self.scheme]())
         if self.compile_model:
-            return torch.compile(
+            model = torch.compile(
                 model,
-                dynamic=context.config.dynamic_shapes,
-                mode=context.config.compile_mode,
+                dynamic=context.policy.dynamic_shapes,
+                mode=context.policy.compile_mode,
             )
-        return model
+        return BuiltPlan(
+            runner=model,
+            metadata={"backend": "torchao", "scheme": self.scheme},
+        )
