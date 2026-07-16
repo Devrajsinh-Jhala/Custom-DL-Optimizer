@@ -24,11 +24,20 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) ->
 
 def _candidate_rows(source: Path, report: dict[str, Any]) -> list[dict[str, Any]]:
     common = {
+        "report_schema_version": report.get("schema_version", 1),
         "source_report": source.name,
         "workload": report.get("workload_name", "workload"),
         "device": report.get("device", ""),
         "selected_plan": report.get("selected_plan", ""),
         "selection_basis": report.get("selection_basis", ""),
+        "selection_estimator": report.get("selection_estimator", ""),
+        "confidence_level": report.get("confidence_level"),
+        "bootstrap_resamples": report.get("bootstrap_resamples"),
+        "random_seed": report.get("random_seed"),
+        "baseline_plan": report.get("baseline_plan", ""),
+        "confidence_gate_passed": bool(
+            report.get("confidence_gate_passed", False)
+        ),
         "expected_calls": report.get("expected_calls"),
         "cache_hit": bool(report.get("cache_hit", False)),
     }
@@ -49,6 +58,17 @@ def _candidate_rows(source: Path, report: dict[str, Any]) -> list[dict[str, Any]
                 "setup_time_s": candidate.get("setup_time_s"),
                 "first_call_time_s": candidate.get("first_call_time_s"),
                 "projected_total_ms": candidate.get("projected_total_ms"),
+                "selection_cost_ms": candidate.get("selection_cost_ms"),
+                "selection_cost_ci_low_ms": candidate.get(
+                    "selection_cost_ci_low_ms"
+                ),
+                "selection_cost_ci_high_ms": candidate.get(
+                    "selection_cost_ci_high_ms"
+                ),
+                "candidate_confidence_gate_passed": candidate.get(
+                    "confidence_gate_passed"
+                ),
+                "rejection_reason": candidate.get("rejection_reason", ""),
                 "peak_memory_mb": candidate.get("peak_memory_mb"),
                 "calls_per_second": candidate.get("calls_per_second"),
                 "speedup_vs_eager": candidate.get("speedup_vs_eager"),
@@ -227,7 +247,7 @@ def export_paper_artifacts(
     manifest.write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 3,
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "source_reports": [str(path) for path in sources],
                 "candidate_rows": len(candidate_rows),

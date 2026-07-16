@@ -12,6 +12,7 @@ dist/
 *.tar.gz
 
 .venv/
+.release-venv/
 venv/
 env/
 

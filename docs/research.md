@@ -1,6 +1,6 @@
 # Research Framing
 
-Custom-DL-Optimizer should be framed as a workload-aware inference plan selector with compiler passes, provider orchestration, and measured deployment constraints.
+Custom-DL-Optimizer v3 should be framed as a confidence-gated lifecycle selector for heterogeneous inference plans, with compiler passes and provider runtimes as candidate generators.
 
 ## Research Contribution
 
@@ -15,14 +15,15 @@ The core contribution is not that the package replaces production runtimes such 
 - weighted multi-signature workload selection
 - optional Torch-TensorRT, ONNX Runtime, and TorchAO candidates
 - cold-start amortization and persistent validated decisions
-- numerical validation, resource constraints, and measured fallback
+- deterministic randomized candidate order and bootstrap mean-cost bounds
+- confidence-gated replacement, numerical validation, resource constraints, and measured fallback
 
 ## Strong Claim
 
 Use this style:
 
 ```text
-Custom-DL-Optimizer selects an inference plan only when it remains valid across the declared workload distribution, satisfies deployment constraints, and clears a measured lifecycle-cost threshold over the fastest valid built-in path.
+Custom-DL-Optimizer replaces the fastest valid native inference plan only when a challenger remains numerically valid across the declared workload, satisfies deployment constraints, and its upper lifecycle-cost confidence bound clears the configured gain against the baseline lower bound.
 ```
 
 Historical claim for the fixed-path Tesla T4 research run:
@@ -45,7 +46,7 @@ Avoid these until a full literature review and controlled comparison are complet
 ## Suggested Paper Title
 
 ```text
-Custom-DL-Optimizer: Constraint-Aware and Cold-Start-Amortized Selection of PyTorch Inference Plans
+Custom-DL-Optimizer v3: Confidence-Gated Lifecycle Selection of Heterogeneous Inference Plans
 ```
 
-Use [paper-launch.md](paper-launch.md) as the required evaluation and claim protocol for the version 2.2 paper.
+Use [paper-launch.md](paper-launch.md) as the required evaluation and claim protocol. Treat the historical T4 table as pilot evidence until the v3 experiment matrix is rerun.

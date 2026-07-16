@@ -5,7 +5,7 @@ from typing import Any
 
 import torch.nn as nn
 
-from .optimizer import OptimizationResult, Optimizer
+from .optimizer import InferenceOptimizer, OptimizationDecision
 from .workload import WorkloadCase, WorkloadProfile
 
 
@@ -19,10 +19,10 @@ class _RegisteredWorkload:
 class OptimizationAgentToolkit:
     """Dependency-neutral function tools for in-process agent orchestration."""
 
-    def __init__(self, optimizer: Optimizer | None = None) -> None:
-        self.optimizer = optimizer or Optimizer()
+    def __init__(self, optimizer: InferenceOptimizer | None = None) -> None:
+        self.optimizer = optimizer or InferenceOptimizer()
         self._workloads: dict[str, _RegisteredWorkload] = {}
-        self._results: dict[str, OptimizationResult] = {}
+        self._results: dict[str, OptimizationDecision] = {}
 
     def register_workload(
         self,
@@ -135,7 +135,7 @@ class OptimizationAgentToolkit:
             raise KeyError(f"Unknown registered workload: {workload_name!r}")
         if tool_name == "custom_dl_optimize":
             workload = self._workloads[workload_name]
-            result = self.optimizer.optimize_workload(
+            result = self.optimizer.select(
                 workload.model,
                 workload.profile,
             )

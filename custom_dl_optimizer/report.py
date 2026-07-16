@@ -73,6 +73,12 @@ class CandidateReport:
     setup_time_s: float = 0.0
     first_call_time_s: float | None = None
     projected_total_ms: float | None = None
+    selection_cost_ms: float | None = None
+    selection_cost_ci_low_ms: float | None = None
+    selection_cost_ci_high_ms: float | None = None
+    confidence_gate_passed: bool | None = None
+    baseline_reference: bool = False
+    rejection_reason: str = ""
     break_even_calls_vs_baseline: int | None = None
     selected: bool = False
     calls_per_second: float | None = None
@@ -81,12 +87,15 @@ class CandidateReport:
     peak_memory_mb: float | None = None
     constraint_violations: list[str] = field(default_factory=list)
     workload_cases: list[WorkloadCaseReport] = field(default_factory=list)
+    artifacts: list[str] = field(default_factory=list)
+    provider_metadata: dict[str, Any] = field(default_factory=dict)
     error: str = ""
 
 
 @dataclass
 class OptimizationReport:
     device: str
+    schema_version: int = 3
     workload_name: str = "workload"
     selected_plan: str = "native"
     selection_reason: str = ""
@@ -95,6 +104,13 @@ class OptimizationReport:
     amp: bool = False
     expected_calls: int | None = None
     selection_basis: str = "steady_state_latency"
+    selection_estimator: str = "bootstrap_mean"
+    confidence_level: float = 0.95
+    bootstrap_resamples: int = 0
+    random_seed: int = 0
+    candidate_order: list[str] = field(default_factory=list)
+    baseline_plan: str = ""
+    confidence_gate_passed: bool = False
     optimization_time_s: float = 0.0
     cache_key: str = ""
     cache_hit: bool = False

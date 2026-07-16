@@ -1,6 +1,8 @@
 import copy
+import hashlib
 import logging
 import math
+import random
 import statistics
 import time
 from collections.abc import Iterable
@@ -12,7 +14,12 @@ import torch
 import torch.nn as nn
 
 from custom_dl_optimizer.config import OptimizationConfig
-from custom_dl_optimizer.providers import CandidateContext, CandidateProvider
+from custom_dl_optimizer.policy import ExecutionTarget, OptimizationPolicy
+from custom_dl_optimizer.providers import (
+    BuiltPlan,
+    ExecutionProvider,
+    ProviderContext,
+)
 from custom_dl_optimizer.report import (
     CandidateReport,
     OptimizationReport,
@@ -106,6 +113,11 @@ class _InferenceWrapper(nn.Module):
         ):
             return self.core_model(*prepared_args, **prepared_kwargs)
 
+    def close(self) -> None:
+        close = getattr(self.core_model, "close", None)
+        if callable(close):
+            close()
+
 
 def _compare_outputs(
     reference: Any,
@@ -185,6 +197,41 @@ def _percentile(samples: list[float], percentile: int) -> float:
     return float(
         statistics.quantiles(samples, n=100, method="inclusive")[percentile - 1]
     )
+
+
+def _quantile(samples: list[float], probability: float) -> float:
+    ordered = sorted(samples)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    position = probability * (len(ordered) - 1)
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return float(ordered[lower])
+    fraction = position - lower
+    return float(ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction)
+
+
+def _bootstrap_mean_interval(
+    samples: list[float],
+    *,
+    confidence_level: float,
+    resamples: int,
+    seed: int,
+) -> tuple[float, float, float]:
+    if not samples:
+        raise ValueError("at least one selection-cost sample is required")
+    point = float(statistics.mean(samples))
+    if len(samples) == 1:
+        return point, point, point
+    rng = random.Random(seed)
+    sample_count = len(samples)
+    means = [
+        statistics.fmean(samples[rng.randrange(sample_count)] for _ in range(sample_count))
+        for _ in range(resamples)
+    ]
+    alpha = (1.0 - confidence_level) / 2.0
+    return point, _quantile(means, alpha), _quantile(means, 1.0 - alpha)
 
 
 def _stats_from_samples(samples: list[float]) -> _BenchmarkStats:
@@ -374,6 +421,9 @@ def _populate_candidate_metrics(
     candidate_reports: list[CandidateReport],
     *,
     expected_calls: int | None,
+    confidence_level: float = 0.95,
+    bootstrap_resamples: int = 1_000,
+    random_seed: int = 17,
 ) -> None:
     eager = next(
         (
@@ -421,8 +471,35 @@ def _populate_candidate_metrics(
             candidate.projected_total_ms = (
                 candidate.setup_time_s * 1000.0
                 + _first_call_ms(candidate)
-                + candidate.latency_ms * max(expected_calls - first_call_count, 0)
+                + (candidate.latency_mean_ms or candidate.latency_ms)
+                * max(expected_calls - first_call_count, 0)
             )
+
+        latency_samples = candidate.latency_samples_ms or [
+            candidate.latency_mean_ms or candidate.latency_ms
+        ]
+        if expected_calls is None:
+            selection_samples = list(latency_samples)
+        else:
+            first_call_count = max(1, len(candidate.workload_cases))
+            fixed_cost_ms = candidate.setup_time_s * 1000.0 + _first_call_ms(candidate)
+            remaining_calls = max(expected_calls - first_call_count, 0)
+            selection_samples = [
+                fixed_cost_ms + sample * remaining_calls for sample in latency_samples
+            ]
+        digest = hashlib.sha256(
+            f"{random_seed}:{candidate.name}".encode()
+        ).digest()
+        seed = int.from_bytes(digest[:8], "big")
+        point, lower, upper = _bootstrap_mean_interval(
+            selection_samples,
+            confidence_level=confidence_level,
+            resamples=bootstrap_resamples,
+            seed=seed,
+        )
+        candidate.selection_cost_ms = point
+        candidate.selection_cost_ci_low_ms = lower
+        candidate.selection_cost_ci_high_ms = upper
 
         if (
             steady_state_baseline is None
@@ -462,7 +539,9 @@ class AutoOptimizer:
         channels_last: bool | None = None,
         *,
         config: OptimizationConfig | None = None,
-        providers: tuple[CandidateProvider, ...] = (),
+        providers: tuple[ExecutionProvider, ...] = (),
+        policy: OptimizationPolicy | None = None,
+        target: ExecutionTarget | None = None,
         cache_key: str = "",
         artifact_root: str | Path | None = None,
     ) -> None:
@@ -492,6 +571,8 @@ class AutoOptimizer:
         self.model = model.to(resolved_device).eval()
         self.device = resolved_device
         self.config = resolved_config
+        self.policy = policy or OptimizationPolicy.from_engine_config(resolved_config)
+        self.target = target or ExecutionTarget(device=resolved_device)
         self.providers = providers
         self.cache_key = cache_key
         self.artifact_root = (
@@ -619,6 +700,9 @@ class AutoOptimizer:
                 if expected_calls is not None
                 else "steady_state_latency"
             ),
+            confidence_level=self.config.confidence_level,
+            bootstrap_resamples=self.config.bootstrap_resamples,
+            random_seed=self.config.random_seed,
             cache_key=self.cache_key,
             runtime=inspect_runtime(self.device),
             warnings=list(self._warnings),
@@ -645,6 +729,7 @@ class AutoOptimizer:
         candidates: dict[str, nn.Module] = {}
         candidate_uses_selection_inputs: dict[str, bool] = {}
         candidate_setup_times: dict[str, float] = {}
+        candidate_plan_details: dict[str, BuiltPlan] = {}
         failed_candidates: list[CandidateReport] = []
 
         def requested(name: str) -> bool:
@@ -778,9 +863,10 @@ class AutoOptimizer:
             expected_calls=expected_calls,
         )
         representative = prepared_cases[0]
-        provider_context = CandidateContext(
+        provider_context = ProviderContext(
             device=self.device,
-            config=self.config,
+            target=self.target,
+            policy=self.policy,
             example_args=representative.selection_args,
             example_kwargs=representative.selection_kwargs,
             workload_profile=provider_profile,
@@ -799,9 +885,16 @@ class AutoOptimizer:
                 )
                 continue
             try:
-                if not provider.is_available(provider_context):
+                availability = provider.probe(provider_context)
+                if not availability.available:
                     failed_candidates.append(
-                        CandidateReport(name=name, error="Provider is unavailable in this runtime")
+                        CandidateReport(
+                            name=name,
+                            error=(
+                                availability.reason
+                                or "Provider is unavailable in this runtime"
+                            ),
+                        )
                     )
                     continue
                 started = time.perf_counter()
@@ -814,7 +907,10 @@ class AutoOptimizer:
                     self.artifact_root / name if self.artifact_root is not None else None
                 )
                 context = replace(provider_context, artifact_dir=artifact_dir)
-                provider_candidate = provider.build(provider_model, context).eval()
+                built_plan = provider.build(provider_model, context)
+                if not isinstance(built_plan, BuiltPlan):
+                    built_plan = BuiltPlan(runner=built_plan)
+                provider_candidate = built_plan.as_module().eval()
                 candidate = _InferenceWrapper(
                     provider_candidate,
                     device=self.device,
@@ -823,14 +919,28 @@ class AutoOptimizer:
                 ).eval()
                 candidate_setup_times[name] = _elapsed_s(started, self.device)
                 candidates[name] = candidate
+                candidate_plan_details[name] = built_plan
                 candidate_uses_selection_inputs[name] = True
             except Exception as exc:
                 failed_candidates.append(CandidateReport(name=name, error=repr(exc)[:1000]))
 
         candidate_models: dict[str, nn.Module] = {}
-        for name, candidate in candidates.items():
+        candidate_items = list(candidates.items())
+        if (
+            preferred_plan is None
+            and self.config.randomize_candidate_order
+            and len(candidate_items) > 1
+        ):
+            random.Random(self.config.random_seed).shuffle(candidate_items)
+        report.candidate_order = [name for name, _ in candidate_items]
+        for name, candidate in candidate_items:
             candidate_report = CandidateReport(name=name)
             candidate_report.setup_time_s = candidate_setup_times.get(name, 0.0)
+            if name in candidate_plan_details:
+                candidate_report.artifacts = list(candidate_plan_details[name].artifacts)
+                candidate_report.provider_metadata = dict(
+                    candidate_plan_details[name].metadata
+                )
             for prepared in prepared_cases:
                 case_report = WorkloadCaseReport(
                     name=prepared.name,
@@ -956,6 +1066,9 @@ class AutoOptimizer:
         _populate_candidate_metrics(
             report.candidates,
             expected_calls=expected_calls,
+            confidence_level=self.config.confidence_level,
+            bootstrap_resamples=self.config.bootstrap_resamples,
+            random_seed=self.config.random_seed,
         )
         selected_name, reason = self._select_candidate(
             report.candidates,
@@ -978,6 +1091,26 @@ class AutoOptimizer:
             candidate_report.selected = candidate_report.name == selected_name
         report.selected_plan = selected_name
         report.selection_reason = reason
+        baseline = next(
+            (
+                candidate
+                for candidate in report.candidates
+                if candidate.baseline_reference
+            ),
+            None,
+        )
+        report.baseline_plan = baseline.name if baseline is not None else ""
+        selected_report = next(
+            (
+                candidate
+                for candidate in report.candidates
+                if candidate.name == selected_name
+            ),
+            None,
+        )
+        report.confidence_gate_passed = bool(
+            selected_report is not None and selected_report.confidence_gate_passed
+        )
         report.optimization_time_s = (
             self._initialization_time_s + time.perf_counter() - optimization_started
         )
@@ -1007,8 +1140,10 @@ class AutoOptimizer:
             return "", "No candidate completed successfully."
 
         def selection_cost(candidate: CandidateReport) -> float:
+            if candidate.selection_cost_ms is not None:
+                return candidate.selection_cost_ms
             if effective_expected_calls is None:
-                return candidate.latency_ms or float("inf")
+                return candidate.latency_mean_ms or candidate.latency_ms or float("inf")
             if candidate.projected_total_ms is not None:
                 return candidate.projected_total_ms
             return (
@@ -1020,6 +1155,12 @@ class AutoOptimizer:
                     0,
                 )
             )
+
+        def lower_bound(candidate: CandidateReport) -> float:
+            return candidate.selection_cost_ci_low_ms or selection_cost(candidate)
+
+        def upper_bound(candidate: CandidateReport) -> float:
+            return candidate.selection_cost_ci_high_ms or selection_cost(candidate)
 
         baselines = [
             candidate
@@ -1035,9 +1176,11 @@ class AutoOptimizer:
             if not custom:
                 return "", "No selectable candidate completed successfully."
             fastest = min(custom, key=selection_cost)
+            fastest.confidence_gate_passed = None
             return fastest.name, "Built-in plans were invalid; selected fastest valid provider."
 
         baseline = min(baselines, key=selection_cost)
+        baseline.baseline_reference = True
         if not custom:
             qualifier = (
                 "lowest projected-cost"
@@ -1046,31 +1189,45 @@ class AutoOptimizer:
             )
             return baseline.name, f"Selected {qualifier} built-in plan: {baseline.name}."
 
-        fastest_custom = min(custom, key=selection_cost)
         baseline_cost = selection_cost(baseline)
-        custom_cost = selection_cost(fastest_custom)
-        required_cost = baseline_cost / self.config.min_speedup
-        if custom_cost <= required_cost:
+        required_upper_bound = lower_bound(baseline) / self.config.min_speedup
+        for candidate in custom:
+            candidate.confidence_gate_passed = (
+                upper_bound(candidate) <= required_upper_bound
+            )
+            if not candidate.confidence_gate_passed:
+                candidate.rejection_reason = (
+                    f"upper confidence cost {upper_bound(candidate):.6g} ms did not clear "
+                    f"required bound {required_upper_bound:.6g} ms"
+                )
+        passing_custom = [
+            candidate for candidate in custom if candidate.confidence_gate_passed
+        ]
+        if passing_custom:
+            fastest_custom = min(passing_custom, key=selection_cost)
+            custom_cost = selection_cost(fastest_custom)
             speedup = baseline_cost / custom_cost
             if effective_expected_calls is not None:
                 return (
                     fastest_custom.name,
-                    f"Projected total cost is {speedup:.3f}x faster than {baseline.name} "
-                    f"over {effective_expected_calls} calls and cleared the "
-                    f"{self.config.min_speedup:.3f}x selection threshold.",
+                    f"Projected lifecycle cost is {speedup:.3f}x lower than "
+                    f"{baseline.name} over {effective_expected_calls} calls; the "
+                    f"{self.config.confidence_level:.1%} upper confidence bound cleared "
+                    f"the {self.config.min_speedup:.3f}x replacement threshold.",
                 )
             return (
                 fastest_custom.name,
-                f"Measured {speedup:.3f}x over {baseline.name} and cleared the "
-                f"{self.config.min_speedup:.3f}x selection threshold.",
+                f"Mean steady-state cost is {speedup:.3f}x lower than {baseline.name}; "
+                f"the {self.config.confidence_level:.1%} upper confidence bound cleared "
+                f"the {self.config.min_speedup:.3f}x replacement threshold.",
             )
         return (
             baseline.name,
             (
-                f"Custom plans did not clear the projected-total threshold over "
-                f"{effective_expected_calls} calls; using {baseline.name}."
+                f"Challenger confidence bounds did not clear the lifecycle threshold "
+                f"over {effective_expected_calls} calls; retained {baseline.name}."
                 if effective_expected_calls is not None
-                else "Custom plans did not clear the steady-state speedup threshold; "
-                f"using {baseline.name}."
+                else "Challenger confidence bounds overlapped the steady-state "
+                f"replacement threshold; retained {baseline.name}."
             ),
         )

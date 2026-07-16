@@ -17,7 +17,7 @@ from .config import OptimizationConfig
 from .runtime import RuntimeCapabilities
 from .workload import WorkloadProfile
 
-_CACHE_SCHEMA_VERSION = 1
+_CACHE_SCHEMA_VERSION = 3
 
 
 def _package_version() -> str:

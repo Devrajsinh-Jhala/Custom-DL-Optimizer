@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "custom-dl-optimizer"
-version = "2.2.0"
-description = "An auditable PyTorch inference plan selector with FX, Triton, compiler plugins, and agent tools"
+version = "3.0.0"
+description = "Confidence-gated lifecycle selection for heterogeneous PyTorch inference plans"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -27,7 +27,7 @@ keywords = [
   "benchmarking",
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "Operating System :: OS Independent",
